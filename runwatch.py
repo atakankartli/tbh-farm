@@ -86,6 +86,7 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
   progress (no navigation), where the measured time would be a partial run."""
   timeout = timeout if timeout is not None else getattr(config, "RUN_TIMEOUT_SEC", 900)
   poll = getattr(config, "SAVE_POLL_SEC", 15)
+  log_poll = getattr(config, "LOG_POLL_SEC", 1.0)  # drop check is a cheap file stat
   margin = getattr(config, "CLEAR_TIME_MARGIN", 1.3)
   need_sec = clear_time(target) * margin
   gold_floor = getattr(config, "GOLD_SANITY_FLOOR", 3000)
@@ -109,7 +110,7 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
       return "cleared"
     start = time.time()
     while time.time() - start < timeout:
-      time.sleep(poll)
+      time.sleep(getattr(config, "LOG_POLL_SEC", 1.0))
       if drop_seen():
         return "dropped"
     return None
@@ -123,11 +124,13 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
   print(f"  Waiting for {target.act}-{target.stage} blue drop "
         f"(clear ~{int(need_sec)}s; up to {int(timeout / 60)} min)...")
 
+  next_save_check = start + poll
   while time.time() - start < timeout:
-    time.sleep(poll)
+    time.sleep(log_poll if watcher is not None else poll)
     elapsed = time.time() - start
 
-    # The game logs the drop the moment it happens — no save-flush lag.
+    # The game logs the drop the moment it happens — no save-flush lag, and
+    # checked every second so we move on to the next stage right away.
     if drop_seen():
       # elapsed is a clean single-run measurement only if no earlier chained
       # run finished first
@@ -135,6 +138,11 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
         _record_clear_time(key, elapsed)
       print(f"  Blue drop LOGGED by the game after {int(elapsed)}s")
       return "dropped"
+
+    # The save read (decrypt + parse) is heavier — keep it on the slow poll.
+    if watcher is not None and time.time() < next_save_check:
+      continue
+    next_save_check = time.time() + poll
 
     try:
       s = savefile.load()
