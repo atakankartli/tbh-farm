@@ -79,9 +79,12 @@ def main() -> None:
     last = "never" if not s["lastDropAt"] else f"{int((time.time() * 1000 - s['lastDropAt']) / 60000)}m ago"
     print(f"  {s['key']:16} last drop {last:>12}  ->  {when}")
   print(f"Self-tracking cooldowns (no tbh-meter). Checking every {config.POLL_INTERVAL}s... (Ctrl+C)")
+  if not get_settings().get("macroEnabled", False):
+    print("MACRO IS OFF (default) — it won't touch the mouse until you click the "
+          "'macro' pill on the dashboard to turn it on.")
 
   while True:
-    if not get_settings().get("macroEnabled", True):
+    if not get_settings().get("macroEnabled", False):
       # Master switch off: no navigation, no error-dialog clicks — the mouse
       # is entirely the user's until they flip it back on in the GUI.
       set_macro_status("paused", "macro switched off in web GUI")
@@ -179,7 +182,7 @@ def main() -> None:
     except Exception as exc:
       print(f"  Blue-chest check failed: {exc}")
 
-    if get_settings().get("stashEnabled", True):
+    if get_settings().get("stashEnabled", False):
       set_macro_status("stashing loot", "", handle_key)
       try:
         stash_all()

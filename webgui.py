@@ -20,7 +20,9 @@ import config
 
 STATUS_PATH = Path(__file__).with_name("macro_status.json")
 SETTINGS_PATH = Path(__file__).with_name("macro_settings.json")   # GUI-toggled behavior
-_DEFAULT_SETTINGS = {"stashEnabled": True, "macroEnabled": True}
+# Both OFF by default: starting the exe must not take over the mouse until
+# the user flips the macro pill on the dashboard.
+_DEFAULT_SETTINGS = {"stashEnabled": False, "macroEnabled": False}
 
 
 def get_settings() -> dict:

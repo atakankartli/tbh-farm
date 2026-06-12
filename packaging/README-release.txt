@@ -29,7 +29,10 @@ SETUP
    _vision_debug.png so you can see what it detected.
 4. Run the farm:
        TBH-Macro.exe
-   Open http://localhost:8765 for live timers. Ctrl+C in the console stops it.
+   Open http://localhost:8765 — the macro starts PAUSED (it won't touch your
+   mouse): click the "macro" pill in the dashboard header to turn it on.
+   The "stash" pill (auto Stash All after runs) is also off by default.
+   Ctrl+C in the console stops it.
 
 NOTES
 -----
