@@ -38,6 +38,12 @@ _last_error_check = 0.0
 NO_DROP_BACKOFF_SEC = 180
 _no_drop_backoff: dict[str, float] = {}
 
+# Where WE last sent the game (auto or manual navigation). The save's
+# currentStage lags 1-2 min behind, so this is the fresh source of truth for
+# "are we already on this stage" — and the manually chosen stage is farmed
+# first when it's ready, instead of being yanked away.
+_parked_on: str | None = None
+
 
 def stage_key(stage: ReadyStage) -> str:
   return f"{stage.act}-{stage.stage}:{stage.difficulty.upper()}"
@@ -61,6 +67,7 @@ def now_ms() -> int:
 
 
 def main() -> None:
+  global _parked_on
   if "--warm" in sys.argv:
     chests.bootstrap_from_meter()
 
@@ -83,6 +90,13 @@ def main() -> None:
     print("MACRO IS OFF (default) — it won't touch the mouse until you click the "
           "'macro' pill on the dashboard to turn it on.")
 
+  # One ledger for the whole session: drops logged at ANY moment (navigating,
+  # between cycles, waiting on another stage) stay pending until consumed.
+  watcher = droplog.DropTracker() if droplog.log_path().exists() else None
+  if watcher is None:
+    print(f"  WARNING: {droplog.log_path()} not found — drops can't be verified, "
+          "falling back to clear-based stamping")
+
   while True:
     # Manual navigation from the GUI — an explicit user action, so it runs
     # even while the macro is paused, and aborts any in-progress wait.
@@ -93,6 +107,7 @@ def main() -> None:
       set_macro_status("navigating (manual)", "", spec)
       try:
         go_to_stage(chests.validate_stage(spec))
+        _parked_on = spec
         set_macro_status("idle", f"manually moved to {spec} — the game farms it now")
         print(f"  Now parked on {spec}")
       except Exception as exc:
@@ -123,23 +138,23 @@ def main() -> None:
       time.sleep(config.POLL_INTERVAL)
       continue
 
-    target = ready[0]
+    # The stage we (or the user, via Go) parked the game on runs first when
+    # ready — don't yank the game away from a deliberate manual choice.
+    target = next((s for s in ready if stage_key(s) == _parked_on), ready[0])
     handle_key = stage_key(target)
-    # Tail Player.log from this moment; without the log (unusual) fall back
-    # to legacy clear-based stamping rather than never stamping at all.
-    watcher = droplog.DropWatcher() if droplog.log_path().exists() else None
-    if watcher is None:
-      print(f"  WARNING: {droplog.log_path()} not found — drops can't be verified, "
-            "falling back to clear-based stamping")
 
     # If the game is already parked on this stage, clicking its node would
     # RESTART the run and lose the progress — skip navigation and just wait.
-    already_on = False
-    try:
-      import savefile
-      already_on = savefile.load().current_stage_key == chests.numeric_stage_key(target)
-    except Exception:
-      pass
+    # Our own navigation memory is fresher than the save (1-2 min flush lag).
+    if _parked_on is not None:
+      already_on = _parked_on == handle_key
+    else:
+      already_on = False
+      try:
+        import savefile
+        already_on = savefile.load().current_stage_key == chests.numeric_stage_key(target)
+      except Exception:
+        pass
 
     if already_on:
       print(f"READY: {handle_key} (Lv {target.level}) -> already farming it; "
@@ -150,6 +165,7 @@ def main() -> None:
     try:
       if not already_on:
         go_to_stage(target)
+        _parked_on = handle_key
     except StageLockedError as exc:
       # Retrying every poll would click forever at a chained map; drop the
       # target and keep farming the rest. Re-add it from the GUI once the
@@ -188,9 +204,11 @@ def main() -> None:
         set_macro_status("run timeout", "", handle_key)
       continue  # backoff guards the failed stage; pick the next one now
 
-    # "dropped" (game-verified), or "cleared" in legacy no-log mode.
+    # "dropped" (game-verified), or "cleared" in legacy no-log mode. Stamp
+    # with the moment the drop was actually seen, not the consume time.
     _no_drop_backoff.pop(handle_key, None)
-    chests.record_local_drop(target, now_ms())
+    drop_at = (watcher.last_taken_ms if watcher and result == "dropped" else None) or now_ms()
+    chests.record_local_drop(target, drop_at)
     verified = "VERIFIED " if result == "dropped" else ""
     print(f"  Stamped {verified}drop for {handle_key}; cooldown {config.CHEST_COOLDOWN_MIN}m starts now")
 

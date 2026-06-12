@@ -86,21 +86,22 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
   key = _key(target)
 
   if watcher is not None:
+    # watcher is a droplog.DropTracker: drops of OTHER levels stay pending in
+    # its ledger (they belong to other stages), and a drop logged before this
+    # wait even started (e.g. during navigation) is consumed immediately.
     log_poll = getattr(config, "LOG_POLL_SEC", 1.0)  # drop check is a cheap file stat
     start = time.time()
     print(f"  Waiting for the {target.act}-{target.stage} blue drop "
-          f"(up to {int(timeout / 60)} min)...")
+          f"(Lv{target.level or 'any'}; up to {int(timeout / 60)} min)...")
     last_note = start
     while time.time() - start < timeout:
+      if watcher.take(target.level) is not None:
+        print(f"  Blue drop Lv{target.level or '?'} confirmed after {int(time.time() - start)}s")
+        return "dropped"
       time.sleep(log_poll)
       if abort and abort():
         print("  wait aborted — a manual command is pending")
         return "aborted"
-      for level in watcher.new_blue_drops():
-        if not target.level or level == target.level:
-          print(f"  Blue drop LOGGED by the game after {int(time.time() - start)}s")
-          return "dropped"
-        print(f"  Ignoring blue drop of level {level} (target is Lv{target.level})")
       if time.time() - last_note >= 120:
         last_note = time.time()
         print(f"  ...still waiting for the drop ({int((last_note - start) / 60)}m elapsed)")
