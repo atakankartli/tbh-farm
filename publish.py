@@ -37,7 +37,6 @@ PUBLISH_DIR = Path(getattr(config, "PUBLISH_DIR", os.path.expanduser(r"~\tbh-far
 USER = getattr(config, "GITHUB_USER", "atakankartli")
 REPO = getattr(config, "GITHUB_REPO", "tbh-farm")
 PASSWORD = getattr(config, "SITE_PASSWORD", "changeme")
-INTERVAL = getattr(config, "PUBLISH_INTERVAL", 90)
 PBKDF2_ITERS = 150_000
 COMMIT_MSG = "live state"
 REMOTE = f"https://github.com/{USER}/{REPO}.git"
@@ -250,14 +249,31 @@ def publish_once(initial: bool = False) -> None:
   _run(["git", "push", "--force-with-lease", "origin", "gh-pages"], cwd=PUBLISH_DIR, check=False, quiet=True)
 
 
+def _timer_signature():
+  """Just the timer-relevant bits: per-target last drop time. Timers tick in
+  the browser from these, so this only changes when a chest actually drops."""
+  import chests
+  return tuple((s["key"], s["lastDropAt"]) for s in chests.get_status())
+
+
 def loop() -> None:
-  print(f"Publishing (encrypted) every {INTERVAL}s -> {USER}.github.io/{REPO} (Ctrl+C)")
+  poll = getattr(config, "PUBLISH_POLL_SEC", 8)
+  heartbeat = getattr(config, "PUBLISH_HEARTBEAT_SEC", 240)
+  print(f"Publishing -> {USER}.github.io/{REPO}: on every drop (~{poll}s) + {heartbeat}s heartbeat (Ctrl+C)")
+  last_sig, last_push = None, 0.0
   while True:
     try:
-      publish_once()
+      sig = _timer_signature()
+      now = time.time()
+      changed = sig != last_sig
+      if changed or (now - last_push) >= heartbeat:
+        publish_once()
+        if changed and last_sig is not None:
+          print("  drop detected -> pushed timer update")
+        last_sig, last_push = sig, now
     except Exception as exc:
       print(f"  publish failed: {exc}")
-    time.sleep(INTERVAL)
+    time.sleep(poll)
 
 
 def start_in_background() -> None:
