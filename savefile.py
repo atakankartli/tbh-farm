@@ -132,6 +132,12 @@ class Save:
     signal, unlike the spendable gold balance."""
     return self.aggregate(2, 1)
 
+  @property
+  def total_clears(self) -> int:
+    """Lifetime completed runs (boss kills) — tbh-copilot's totalClears.
+    0 means the counter is absent (old save format)."""
+    return self.aggregate(15, 0)
+
   # ---- stash / inventory occupancy (for the stash-all sweep) ----
   def _occupancy(self, slots: list[dict]) -> tuple[int, int, int]:
     unlocked = [s for s in slots if s.get("IsUnLock")]
