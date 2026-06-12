@@ -171,6 +171,19 @@ INDEX_HTML = """<!doctype html>
   td.stg{font-weight:600}
   .empty{padding:26px; text-align:center; color:var(--dim)}
   .muted{color:var(--muted)}
+  /* party */
+  .party{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; margin-bottom:34px}
+  .hero{display:flex; gap:14px; align-items:center; background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:1px solid var(--line); border-radius:16px; padding:14px 16px}
+  .hero .portrait{width:58px; height:84px; flex:none; border-radius:10px; image-rendering:pixelated;
+    object-fit:contain; background:radial-gradient(40px 40px at 50% 40%,#2c2418,#171209); border:1px solid var(--line)}
+  .hero .cls{font-weight:700; font-size:15px}
+  .hero .role{font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:1px; margin-bottom:7px}
+  .hero .lvl{color:var(--gold2); font-weight:700}
+  .hero .xp{font-size:11px; color:var(--muted); margin-top:6px}
+  .hero .gear{font-size:11px; color:var(--dim); margin-top:2px}
+  .Knight{--rc:#d8c27a}.Ranger{--rc:#8fd06a}.Sorcerer{--rc:#c2a3ff}.Priest{--rc:#ffce6b}.Hunter{--rc:#6ad0c0}.Slayer{--rc:#ff8f6a}
+  .hero .cls{color:var(--rc,#ece2d0)}
 </style></head><body>
 <header><div class="hbar">
   <div class="logo">&#x1F4E6;</div>
@@ -184,6 +197,8 @@ INDEX_HTML = """<!doctype html>
     <span class="run" id="liverun"></span>
   </div>
   <div class="tiles" id="tiles"></div>
+  <div class="seclabel" id="partylabel" style="display:none">Party</div>
+  <div class="party" id="party"></div>
   <div class="seclabel">Chest Timers</div>
   <div class="cards" id="cards"></div>
   <div class="seclabel">Recent Drops</div>
@@ -228,6 +243,21 @@ function render(){
   $("tiles").innerHTML=tiles.map(([k,v,hot,warn])=>
     `<div class="tile${warn?" warn":""}"><div class="k">${k}</div><div class="v" style="${hot?"color:var(--green)":""}">${v}</div></div>`).join("");
 
+  // party heroes
+  const SPRITE_BASE=window.SPRITE_BASE||"/sprites/";
+  const heroes=(sv&&sv.partyHeroes)||[];
+  $("partylabel").style.display=heroes.length?"":"none";
+  $("party").innerHTML=heroes.map(h=>`
+    <div class="hero ${h.cls}">
+      <img class="portrait" src="${SPRITE_BASE}heroes/${h.sprite}" alt="${h.cls}" onerror="this.style.visibility='hidden'">
+      <div>
+        <div class="role">Hero ${h.key}</div>
+        <div class="cls">${h.cls} <span class="lvl">Lv${h.level}</span></div>
+        <div class="xp">${nfmt(Math.round(h.exp||0))} XP</div>
+        <div class="gear">${h.gear}/9 gear equipped</div>
+      </div>
+    </div>`).join("");
+
   // chest cards
   $("cards").innerHTML=state.chests.map(c=>{
     const left=c.readyAt?Math.max(0,Math.floor((c.readyAt-Date.now())/1000)):0;
@@ -263,6 +293,9 @@ setInterval(render,1000); setInterval(poll,3000); poll();
 </script></body></html>"""
 
 
+SPRITES_DIR = Path(__file__).with_name("sprites")
+
+
 class _Handler(BaseHTTPRequestHandler):
   def do_GET(self):  # noqa: N802
     if self.path == "/state":
@@ -271,6 +304,15 @@ class _Handler(BaseHTTPRequestHandler):
     elif self.path == "/":
       body = INDEX_HTML.encode()
       ctype = "text/html; charset=utf-8"
+    elif self.path.startswith("/sprites/"):
+      rel = self.path[len("/sprites/"):].split("?")[0].lstrip("/")
+      target = (SPRITES_DIR / rel).resolve()
+      if SPRITES_DIR.resolve() in target.parents and target.is_file():
+        body = target.read_bytes()
+        ctype = "image/png"
+      else:
+        self.send_error(404)
+        return
     else:
       self.send_error(404)
       return

@@ -37,6 +37,9 @@ SAVE_PATH = getattr(
 _TICKS_EPOCH_OFFSET = 62135596800
 STASH_PER_PAGE = 49  # 343 slots = 7 pages of 49
 
+HERO_CLASS = {101: "Knight", 201: "Ranger", 301: "Sorcerer",
+              401: "Priest", 501: "Hunter", 601: "Slayer"}
+
 
 def _es3_decrypt(blob: bytes) -> bytes:
   iv = blob[:16]
@@ -99,6 +102,22 @@ class Save:
   def max_party_level(self) -> int:
     levels = {h["heroKey"]: h.get("HeroLevel", 1) for h in self.player.get("heroSaveDatas", [])}
     return max((levels.get(k, 1) for k in self.party), default=1)
+
+  def party_heroes(self) -> list[dict]:
+    """The arranged party in slot order, with class, level, XP and gear count."""
+    saves = {h.get("heroKey"): h for h in self.player.get("heroSaveDatas", [])}
+    out = []
+    for key in self.party:
+      hs = saves.get(key, {})
+      out.append({
+        "key": key,
+        "cls": HERO_CLASS.get(key, f"Hero {key}"),
+        "level": hs.get("HeroLevel", 1),
+        "exp": hs.get("HeroExp", 0),
+        "gear": sum(1 for i in hs.get("equippedItemIds", []) if i),
+        "sprite": f"Hero_{key}.png",
+      })
+    return out
 
   # ---- lifetime aggregates (monotonic counters; used to detect run progress) ----
   def aggregate(self, type_: int, subkey: int) -> int:
@@ -163,6 +182,7 @@ def summary(path: str | None = None) -> dict:
     "savedAt": int(s.saved_at * 1000),
     "savedAtStr": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(s.saved_at)),
     "party": s.party,
+    "partyHeroes": s.party_heroes(),
     "maxPartyLevel": s.max_party_level(),
     "gold": s.gold,
     "currentStage": s.current_stage_key,

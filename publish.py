@@ -141,13 +141,19 @@ def _static_html() -> str:
   # the gate drives poll() itself, so neutralise the built-in auto-start loop
   html = html.replace("setInterval(render,1000); setInterval(poll,3000); poll();",
                       "setInterval(render,1000); setInterval(()=>{if(sessionStorage.getItem('tbhpw'))poll();},3000);")
+  # sprites are published next to index.html (relative path, not the local /sprites/ route)
+  html = html.replace("</head>", '<script>window.SPRITE_BASE="sprites/";</script></head>', 1)
   return html.replace("</body>", _GATE + "</body>", 1)
 
 
 def _write_site() -> None:
+  import shutil
   PUBLISH_DIR.mkdir(parents=True, exist_ok=True)
   (PUBLISH_DIR / "index.html").write_text(_static_html(), encoding="utf-8")
   (PUBLISH_DIR / ".nojekyll").write_text("", encoding="utf-8")
+  src = PROJECT_DIR / "sprites"
+  if src.is_dir():
+    shutil.copytree(src, PUBLISH_DIR / "sprites", dirs_exist_ok=True)
   _write_state()
 
 
@@ -262,9 +268,22 @@ def start_in_background() -> None:
   threading.Thread(target=loop, daemon=True).start()
 
 
+def rebuild_site() -> None:
+  """Re-push the full site (index.html + sprites + state) after a design change."""
+  if not (PUBLISH_DIR / ".git").exists():
+    raise SystemExit("Site not set up. Run:  python publish.py --setup")
+  _write_site()
+  _run(["git", "add", "-A"], cwd=PUBLISH_DIR, quiet=True)
+  _run(["git", "commit", "-m", COMMIT_MSG], cwd=PUBLISH_DIR, check=False, quiet=True)
+  _run(["git", "push", "--force-with-lease", "origin", "gh-pages"], cwd=PUBLISH_DIR, check=False)
+  print(f"Rebuilt + pushed site -> https://{USER}.github.io/{REPO}/")
+
+
 if __name__ == "__main__":
   if "--setup" in sys.argv:
     setup()
+  elif "--site" in sys.argv:
+    rebuild_site()
   elif "--once" in sys.argv:
     publish_once()
     print("published one encrypted update")
