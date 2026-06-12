@@ -27,6 +27,14 @@ from tracker import ReadyStage
 
 COOLDOWN_MS = getattr(config, "CHEST_COOLDOWN_MIN", 12) * 60 * 1000
 
+
+def _atomic_write(path: Path, text: str) -> None:
+  """Write to a temp file then replace, so a crash mid-write can never leave a
+  truncated/corrupt drop-times file (which would wipe cooldowns on restart)."""
+  tmp = path.with_suffix(path.suffix + ".tmp")
+  tmp.write_text(text, encoding="utf-8")
+  os.replace(tmp, path)
+
 LOCAL_STATE_PATH = Path(__file__).with_name("macro_chests.json")   # latest drop per stage
 LOCAL_LOG_PATH = Path(__file__).with_name("macro_drops.json")      # append-only drop history
 _STAGE_DATA_PATH = Path(__file__).with_name("stage_data.json")
@@ -123,18 +131,20 @@ def record_local_drop(target: ReadyStage | Target, drop_at_ms: int) -> None:
   """Stamp a blue drop we caused: update latest-per-stage (for cooldowns) and
   append to the history log (for the GUI / our own record)."""
   num_key = _DIFFICULTY_NUM[target.difficulty.upper()] * 1000 + target.act * 100 + target.stage
+  drop_at_ms = int(drop_at_ms)
   drops = _load_local_drops()
-  drops[num_key] = max(drops.get(num_key, 0), int(drop_at_ms))
-  LOCAL_STATE_PATH.write_text(json.dumps(drops), encoding="utf-8")
+  drops[num_key] = max(drops.get(num_key, 0), drop_at_ms)
+  _atomic_write(LOCAL_STATE_PATH, json.dumps(drops))
 
   log = recent_local_drops(limit=500)
   log.insert(0, {
     "stageKey": num_key,
     "stage": f"{target.act}-{target.stage}",
     "mode": config.DIFFICULTY_LABELS[target.difficulty.upper()],
-    "dropAt": int(drop_at_ms),
+    "dropAt": drop_at_ms,
+    "dropAtStr": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(drop_at_ms / 1000)),
   })
-  LOCAL_LOG_PATH.write_text(json.dumps(log[:500]), encoding="utf-8")
+  _atomic_write(LOCAL_LOG_PATH, json.dumps(log[:500]))
 
 
 def recent_local_drops(limit: int = 12) -> list[dict]:
@@ -170,7 +180,7 @@ def bootstrap_from_meter() -> int:
     if key in targets and at > local.get(key, 0):
       local[key] = at
       seeded += 1
-  LOCAL_STATE_PATH.write_text(json.dumps(local), encoding="utf-8")
+  _atomic_write(LOCAL_STATE_PATH, json.dumps(local))
   print(f"Seeded {seeded} stage cooldowns from tbh-meter history.")
   return seeded
 

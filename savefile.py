@@ -178,7 +178,14 @@ def summary(path: str | None = None) -> dict:
   s = load(path)
   filled, unlocked, free = s.stash_occupancy()
   inv_f, inv_u, inv_free = s.inventory_occupancy()
+  # File mtime is the reliable "last flushed" moment (the game saves ~1-2 min);
+  # it's epoch-based UTC so the browser can age it against Date.now().
+  try:
+    file_modified = int(os.path.getmtime(path or SAVE_PATH) * 1000)
+  except OSError:
+    file_modified = None
   return {
+    "fileModified": file_modified,
     "savedAt": int(s.saved_at * 1000),
     "savedAtStr": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(s.saved_at)),
     "party": s.party,

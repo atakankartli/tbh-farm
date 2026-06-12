@@ -59,6 +59,13 @@ def main() -> None:
 
   targets = chests.get_targets()
   print(f"Farming {len(targets)} blue-chest stages: " + ", ".join(t.key for t in targets))
+
+  # Show restored cooldowns so it's clear restarting didn't reset timings
+  print("Restored drop timings from disk:")
+  for s in chests.get_status():
+    when = "READY now" if s["ready"] else f"ready in {s['secondsLeft'] // 60}m{s['secondsLeft'] % 60:02d}s"
+    last = "never" if not s["lastDropAt"] else f"{int((time.time() * 1000 - s['lastDropAt']) / 60000)}m ago"
+    print(f"  {s['key']:16} last drop {last:>12}  ->  {when}")
   print(f"Self-tracking cooldowns (no tbh-meter). Checking every {config.POLL_INTERVAL}s... (Ctrl+C)")
 
   while True:

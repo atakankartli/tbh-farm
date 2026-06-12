@@ -108,8 +108,12 @@ INDEX_HTML = """<!doctype html>
     display:grid;place-items:center;font-size:16px}
   h1{font-size:16px; letter-spacing:2px; margin:0; color:var(--gold2); font-weight:700; text-transform:uppercase}
   .hsub{color:var(--dim); font-size:11px; letter-spacing:1px; margin-top:1px}
-  .pill{margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12px;
-    background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:6px 14px; color:var(--muted)}
+  .pills{margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end}
+  .pill{display:flex; align-items:center; gap:7px; font-size:12px;
+    background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:6px 13px; color:var(--muted)}
+  #savepill .rfx{color:var(--gold); font-size:13px}
+  #savepill.stale{border-color:#6a4a20; color:var(--gold2)}
+  #savepill.stale .rfx{color:var(--gold2)}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--green); box-shadow:0 0 8px var(--green)}
   .dot.busy{background:var(--gold); box-shadow:0 0 8px var(--gold); animation:pulse 1.1s infinite}
   .dot.off{background:var(--dim); box-shadow:none}
@@ -178,10 +182,10 @@ INDEX_HTML = """<!doctype html>
     border:1px solid var(--line); border-radius:16px; padding:14px 16px}
   .hero .portrait{width:58px; height:84px; flex:none; border-radius:10px; image-rendering:pixelated;
     object-fit:contain; background:radial-gradient(40px 40px at 50% 40%,#2c2418,#171209); border:1px solid var(--line)}
-  .hero .cls{font-weight:700; font-size:15px}
-  .hero .role{font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:1px; margin-bottom:7px}
-  .hero .lvl{color:var(--gold2); font-weight:700}
-  .hero .xp{font-size:11px; color:var(--muted); margin-top:6px}
+  .hero .cls{font-weight:700; font-size:16px}
+  .hero .hlv{margin-top:2px}
+  .hero .lvl{color:var(--gold2); font-weight:700; font-size:13px}
+  .hero .xp{font-size:11px; color:var(--muted); margin-top:7px}
   .hero .gear{font-size:11px; color:var(--dim); margin-top:2px}
   .Knight{--rc:#d8c27a}.Ranger{--rc:#8fd06a}.Sorcerer{--rc:#c2a3ff}.Priest{--rc:#ffce6b}.Hunter{--rc:#6ad0c0}.Slayer{--rc:#ff8f6a}
   .hero .cls{color:var(--rc,#ece2d0)}
@@ -213,7 +217,11 @@ INDEX_HTML = """<!doctype html>
 <header><div class="hbar">
   <div class="logo">&#x1F4E6;</div>
   <div><h1>Blue-Chest Farm</h1><div class="hsub">STAGE-BOSS CHESTS &middot; <span id="cd">12</span>-MIN DUNGEON TIMER</div></div>
-  <div class="pill"><span class="dot off" id="livedot"></span><span id="livelabel">connecting&hellip;</span></div>
+  <div class="pills">
+    <div class="pill" id="savepill" title="When the game last wrote its save (it saves every ~1-2 min)">
+      <span class="rfx">&#x21BB;</span><span id="saveage">&mdash;</span></div>
+    <div class="pill"><span class="dot off" id="livedot"></span><span id="livelabel">connecting&hellip;</span></div>
+  </div>
 </div></header>
 <div class="wrap">
   <div class="status">
@@ -249,6 +257,14 @@ function render(){
   $("livedot").className="dot "+(!ok?"off":busy?"busy":"");
   $("livelabel").textContent=!ok?"offline":busy?"working":"online";
 
+  // save freshness (game flushes its save every ~1-2 min)
+  const fm=state.save&&state.save.fileModified;
+  if(fm){
+    const age=Math.max(0,Math.floor((Date.now()-fm)/1000));
+    $("saveage").textContent="saved "+(age<60?age+"s":Math.floor(age/60)+"m "+(age%60)+"s")+" ago";
+    $("savepill").className="pill"+(age>150?" stale":"");
+  } else { $("saveage").textContent="no save"; }
+
   // status strip
   $("phase").textContent=(m.phase||"idle").toUpperCase();
   $("detail").textContent=(m.target?m.target+"  ":"")+(m.detail||"");
@@ -276,8 +292,8 @@ function render(){
     <div class="hero ${h.cls}">
       <img class="portrait" src="${SPRITE_BASE}heroes/${h.sprite}" alt="${h.cls}" onerror="this.style.visibility='hidden'">
       <div>
-        <div class="role">Hero ${h.key}</div>
-        <div class="cls">${h.cls} <span class="lvl">Lv${h.level}</span></div>
+        <div class="cls">${h.cls}</div>
+        <div class="hlv"><span class="lvl">Lv${h.level}</span></div>
         <div class="xp">${nfmt(Math.round(h.exp||0))} XP</div>
         <div class="gear">${h.gear}/9 gear equipped</div>
       </div>
