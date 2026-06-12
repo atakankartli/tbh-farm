@@ -1,0 +1,7 @@
+No more phantom drops, faster clicks, multi-monitor fixes.
+
+- **Drops are now verified from the game's own log.** TaskBarHero writes `GetBoxCount ... ItemKey : 920<level>1` to `Player.log` (next to your save) the instant a blue chest actually drops — `920651` = level 65, `920151` = level 15; white chests (`910...`) are ignored. The macro stamps a cooldown **only** when a drop of the target stage's exact chest level is logged. A run that clears without a drop line means the in-game cooldown wasn't really ready: nothing is stamped, the stage backs off 3 minutes, and a later run produces the real drop. Bonus: the log is real-time, so clears confirm faster than waiting for a save flush, and learned clear times are now exact. (If your log lives elsewhere, set `PLAYER_LOG` in `config.py`.)
+- **Clicks register reliably and run faster**: a short settle between moving the cursor and clicking (the game polls cursor position — same-frame clicks could land at the old spot), and trimmed delays (blue-chest burst 3× faster, quicker map drags).
+- **Multi-monitor / different-PC fixes**: per-monitor-v2 DPI awareness (mixed display scaling previously skewed click coordinates on secondary monitors), plus cursor-landing verification that warns loudly when Windows moves the cursor somewhere other than requested.
+
+Setup unchanged: extract, install Tesseract OCR once (`winget install UB-Mannheim.TesseractOCR`), edit `config.py`, run `TBH-TestVision.exe` then `TBH-Macro.exe`.
