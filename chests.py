@@ -157,12 +157,18 @@ def recent_local_drops(limit: int = 12) -> list[dict]:
 
 
 def get_drop_times() -> dict[int, int]:
-  """Latest drop per stage. Our own local log is the source of truth; tbh-meter
-  is only consulted if USE_METER_DROPS is on (default off = fully independent)."""
-  merged = _load_local_drops()
-  if getattr(config, "USE_METER_DROPS", False):
-    for key, at in _load_meter_drops().items():
-      merged[key] = max(merged.get(key, 0), at)
+  """Latest real drop per stage.
+
+  When USE_METER_DROPS is on, tbh-meter's chestDropLog is AUTHORITATIVE — it
+  reads game memory and logs every real drop within ~1s, for manual OR macro
+  farming, so it overrides our self-model (which can mis-stamp). Our local log
+  fills stages tbh-meter has no record of, and is the sole source when
+  tbh-meter isn't running (independent mode)."""
+  local = _load_local_drops()
+  if not getattr(config, "USE_METER_DROPS", False):
+    return local
+  merged = dict(local)
+  merged.update(_load_meter_drops())  # memory truth overrides our inference
   return merged
 
 
