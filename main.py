@@ -22,7 +22,7 @@ import config
 import runwatch
 from navigator import dismiss_error_dialog, go_to_stage, stash_all
 from tracker import ReadyStage
-from webgui import set_macro_status, start_in_background
+from webgui import get_settings, set_macro_status, start_in_background
 
 _last_error_check = 0.0
 
@@ -110,11 +110,14 @@ def main() -> None:
     chests.record_local_drop(target, now_ms())
     print(f"  Stamped drop for {handle_key}; cooldown {config.CHEST_COOLDOWN_MIN}m starts now")
 
-    set_macro_status("stashing loot", "", handle_key)
-    try:
-      stash_all()
-    except Exception as exc:
-      print(f"  Stash failed: {exc}")
+    if get_settings().get("stashEnabled", True):
+      set_macro_status("stashing loot", "", handle_key)
+      try:
+        stash_all()
+      except Exception as exc:
+        print(f"  Stash failed: {exc}")
+    else:
+      print("  Stash skipped (turned off in web GUI)")
 
     set_macro_status("idle", f"last: {handle_key} cleared")
     time.sleep(config.POLL_INTERVAL)

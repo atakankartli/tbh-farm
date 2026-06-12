@@ -37,18 +37,25 @@ def _atomic_write(path: Path, text: str) -> None:
 
 LOCAL_STATE_PATH = Path(__file__).with_name("macro_chests.json")   # latest drop per stage
 LOCAL_LOG_PATH = Path(__file__).with_name("macro_drops.json")      # append-only drop history
+EXTRA_TARGETS_PATH = Path(__file__).with_name("macro_targets.json")  # stages added via web GUI
 _STAGE_DATA_PATH = Path(__file__).with_name("stage_data.json")
 
 
-def _load_stage_names() -> dict[str, str]:
-  """Numeric stage key -> English stage name, from the extracted game table."""
+def _load_stage_table() -> dict[str, dict]:
+  """Numeric stage key -> stage info (act/diff/label/lvl/name), extracted game table."""
   try:
     with open(_STAGE_DATA_PATH, encoding="utf-8") as fh:
-      raw = json.load(fh)
+      return json.load(fh)
   except (OSError, ValueError):
     return {}
+
+
+_STAGE_TABLE = _load_stage_table()
+
+
+def _load_stage_names() -> dict[str, str]:
   names = {}
-  for key, info in raw.items():
+  for key, info in _STAGE_TABLE.items():
     name = info.get("name")
     if isinstance(name, dict):
       name = name.get("en-US") or next(iter(name.values()), None)
@@ -68,6 +75,7 @@ class Target:
   stage: int
   difficulty: str  # NORMAL / NIGHTMARE / HELL
   level: int
+  custom: bool = False  # added at runtime via the web GUI (macro_targets.json)
 
   @property
   def key(self) -> str:
@@ -83,17 +91,89 @@ class Target:
     return config.DIFFICULTY_LABELS[self.difficulty]
 
 
-def get_targets() -> list[Target]:
-  targets = []
-  for entry in getattr(config, "TARGET_STAGES", ()):
-    if isinstance(entry, str):
-      spec, level = entry, 0
-    else:
-      spec, level = entry
+def _parse_spec(spec: str, level: int = 0, custom: bool = False) -> Target:
+  try:
     stage_part, difficulty = spec.strip().upper().split(":")
     act, stage = stage_part.split("-")
-    targets.append(Target(act=int(act), stage=int(stage), difficulty=difficulty, level=int(level)))
+    act_n, stage_n = int(act), int(stage)
+  except ValueError:
+    raise ValueError(f"bad stage spec {spec!r} (expected 'act-stage:DIFFICULTY')") from None
+  if difficulty not in _DIFFICULTY_NUM:
+    raise ValueError(f"bad difficulty {difficulty!r} (one of {', '.join(_DIFFICULTY_NUM)})")
+  return Target(act=act_n, stage=stage_n, difficulty=difficulty, level=int(level), custom=custom)
+
+
+def _load_extra_targets() -> list[dict]:
+  try:
+    with open(EXTRA_TARGETS_PATH, encoding="utf-8") as fh:
+      raw = json.load(fh)
+    return [e for e in raw if isinstance(e, dict) and "spec" in e]
+  except (OSError, ValueError):
+    return []
+
+
+def get_targets() -> list[Target]:
+  """config.TARGET_STAGES plus GUI-added stages, deduped (config wins)."""
+  entries: list[tuple[str, int, bool]] = []
+  for entry in getattr(config, "TARGET_STAGES", ()):
+    spec, level = (entry, 0) if isinstance(entry, str) else entry
+    entries.append((spec, level, False))
+  for extra in _load_extra_targets():
+    entries.append((extra["spec"], extra.get("level", 0), True))
+
+  targets: list[Target] = []
+  seen: set[str] = set()
+  for spec, level, custom in entries:
+    target = _parse_spec(spec, level, custom)
+    if target.key not in seen:
+      seen.add(target.key)
+      targets.append(target)
   return targets
+
+
+def all_stages() -> list[dict]:
+  """Every stage in the game table, for the GUI's add-dungeon picker."""
+  out = []
+  for key, info in sorted(_STAGE_TABLE.items(), key=lambda kv: int(kv[0])):
+    stage_no = int(key) % 100
+    out.append({
+      "spec": f"{info['act']}-{stage_no}:{info['diff']}",
+      "act": info["act"],
+      "stage": stage_no,
+      "difficulty": info["diff"],
+      "level": info.get("lvl", 0),
+      "name": _STAGE_NAMES.get(key),
+    })
+  return out
+
+
+def add_target(spec: str, level: int | None = None) -> Target:
+  """Add a farm target at runtime (web GUI). Persisted in macro_targets.json,
+  picked up by the loop on its next poll. Level defaults to the stage's level."""
+  target = _parse_spec(spec, level or 0, custom=True)
+  info = _STAGE_TABLE.get(str(target.stage_key))
+  if info is None:
+    raise ValueError(f"stage {target.key} does not exist")
+  if level is None:
+    target = _parse_spec(spec, int(info.get("lvl", 0)), custom=True)
+  if any(t.key == target.key for t in get_targets()):
+    raise ValueError(f"{target.key} is already a farm target")
+  extras = _load_extra_targets()
+  extras.append({"spec": target.key, "level": target.level})
+  _atomic_write(EXTRA_TARGETS_PATH, json.dumps(extras))
+  return target
+
+
+def remove_target(spec: str) -> bool:
+  """Remove a GUI-added target. Returns False if the spec isn't one (e.g. it
+  comes from config.TARGET_STAGES, which only config.py edits can change)."""
+  key = _parse_spec(spec).key
+  extras = _load_extra_targets()
+  kept = [e for e in extras if _parse_spec(e["spec"]).key != key]
+  if len(kept) == len(extras):
+    return False
+  _atomic_write(EXTRA_TARGETS_PATH, json.dumps(kept))
+  return True
 
 
 def _meter_settings_path() -> str:
@@ -209,6 +289,7 @@ def get_status(now_ms: int | None = None) -> list[dict]:
         "mode": target.mode,
         "level": target.level,
         "name": _STAGE_NAMES.get(str(target.stage_key)),
+        "custom": target.custom,
         "lastDropAt": drop_at or None,
         "readyAt": ready_at or None,
         "ready": now >= ready_at,

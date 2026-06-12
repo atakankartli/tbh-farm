@@ -19,6 +19,29 @@ import chests
 import config
 
 STATUS_PATH = Path(__file__).with_name("macro_status.json")
+SETTINGS_PATH = Path(__file__).with_name("macro_settings.json")   # GUI-toggled behavior
+_DEFAULT_SETTINGS = {"stashEnabled": True}
+
+
+def get_settings() -> dict:
+  """Runtime toggles set from the GUI; main.py reads these every loop."""
+  try:
+    with open(SETTINGS_PATH, encoding="utf-8") as fh:
+      data = json.load(fh)
+  except (OSError, ValueError):
+    data = {}
+  return {**_DEFAULT_SETTINGS, **{k: v for k, v in data.items() if k in _DEFAULT_SETTINGS}}
+
+
+def set_setting(key: str, value) -> dict:
+  if key not in _DEFAULT_SETTINGS:
+    raise ValueError(f"unknown setting {key!r}")
+  if not isinstance(value, type(_DEFAULT_SETTINGS[key])):
+    raise ValueError(f"{key} must be a {type(_DEFAULT_SETTINGS[key]).__name__}")
+  settings = get_settings()
+  settings[key] = value
+  SETTINGS_PATH.write_text(json.dumps(settings), encoding="utf-8")
+  return settings
 
 
 def set_macro_status(phase: str, detail: str = "", target: str = "") -> None:
@@ -81,6 +104,7 @@ def build_state() -> dict:
     "recentDrops": _recent_drops(),
     "cooldownMin": getattr(config, "CHEST_COOLDOWN_MIN", 12),
     "save": save,
+    "settings": get_settings(),
   }
 
 
@@ -112,6 +136,8 @@ INDEX_HTML = """<!doctype html>
   .pill{display:flex; align-items:center; gap:7px; font-size:12px;
     background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:6px 13px; color:var(--muted)}
   #savepill .rfx{color:var(--gold); font-size:13px}
+  #stashpill.clickable{cursor:pointer; user-select:none}
+  #stashpill.clickable:hover{border-color:var(--line2)}
   #savepill.stale{border-color:#6a4a20; color:var(--gold2)}
   #savepill.stale .rfx{color:var(--gold2)}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--green); box-shadow:0 0 8px var(--green)}
@@ -165,6 +191,24 @@ INDEX_HTML = """<!doctype html>
   .ring.rdy{--c:var(--green)} .ring.rdy .t{font-size:14px; color:var(--green); letter-spacing:1px}
   .meta{font-size:11px; color:var(--muted); line-height:1.6}
   .meta .name{color:var(--ink); font-weight:600; font-size:12px; display:block; margin-bottom:2px}
+  /* add-dungeon */
+  .addbtn{margin-left:8px; background:rgba(240,168,48,.1); color:var(--gold2); border:1px solid var(--line2);
+    border-radius:999px; padding:3px 12px; font:600 11px 'Segoe UI',system-ui,sans-serif; letter-spacing:1px;
+    text-transform:uppercase; cursor:pointer}
+  .addbtn:hover{border-color:var(--gold); background:rgba(240,168,48,.18)}
+  .addform{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:0 0 14px;
+    background:var(--panel); border:1px solid var(--line2); border-radius:12px; padding:12px 14px}
+  .addform select,.addform input{background:var(--bg2); color:var(--ink); border:1px solid var(--line2);
+    border-radius:8px; padding:7px 10px; font:13px 'Segoe UI',system-ui,sans-serif}
+  .addform input{width:84px}
+  .addform .go{background:var(--gold); color:#15110b; border:0; border-radius:8px; padding:8px 16px;
+    font-weight:700; cursor:pointer}
+  .addform .go:hover{background:var(--gold2)}
+  .addform .err{color:var(--red); font-size:12px}
+  .card .rm{position:absolute; top:10px; right:10px; z-index:1; width:22px; height:22px; border-radius:6px;
+    background:transparent; color:var(--dim); border:1px solid transparent; font-size:14px; line-height:1;
+    cursor:pointer; display:grid; place-items:center}
+  .card .rm:hover{color:var(--red); border-color:#5a1c1c; background:#2a1414}
   /* drops table */
   .tbl{background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden}
   table{width:100%; border-collapse:collapse; font-size:13px}
@@ -218,6 +262,8 @@ INDEX_HTML = """<!doctype html>
   <div class="logo">&#x1F4E6;</div>
   <div><h1>Blue-Chest Farm</h1><div class="hsub">STAGE-BOSS CHESTS &middot; <span id="cd">12</span>-MIN DUNGEON TIMER</div></div>
   <div class="pills">
+    <div class="pill" id="stashpill" title="Stash loot after each cleared run (click to toggle)">
+      <span class="dot" id="stashdot"></span><span id="stashlabel">stash</span></div>
     <div class="pill" id="savepill" title="When the game last wrote its save (it saves every ~1-2 min)">
       <span class="rfx">&#x21BB;</span><span id="saveage">&mdash;</span></div>
     <div class="pill"><span class="dot off" id="livedot"></span><span id="livelabel">connecting&hellip;</span></div>
@@ -232,7 +278,15 @@ INDEX_HTML = """<!doctype html>
   <div class="tiles" id="tiles"></div>
   <div class="seclabel" id="partylabel" style="display:none">Party</div>
   <div class="party" id="party"></div>
-  <div class="seclabel">Chest Timers</div>
+  <div class="seclabel">Chest Timers
+    <button class="addbtn" id="addbtn" type="button">+ Add Dungeon</button></div>
+  <div class="addform" id="addform" style="display:none">
+    <select id="f_diff"></select>
+    <select id="f_stage"></select>
+    <input id="f_level" type="number" min="0" placeholder="level">
+    <button class="go" id="f_go" type="button">Add</button>
+    <span class="err" id="f_err"></span>
+  </div>
   <div class="cards" id="cards"></div>
   <div class="seclabel">Recent Drops</div>
   <div class="tbl"><table><thead><tr><th>Stage</th><th>Mode</th><th>Dropped</th></tr></thead>
@@ -240,6 +294,7 @@ INDEX_HTML = """<!doctype html>
 </div>
 <script>
 const MODE=["?","Normal","Nightmare","Hell"];
+const CAN_EDIT=!window.RAW_STATE; // the published GitHub Pages mirror is read-only
 let state=null, ok=false;
 const $=id=>document.getElementById(id);
 function fmt(s){const m=Math.floor(s/60),x=s%60;return m+":"+String(x).padStart(2,"0")}
@@ -256,6 +311,11 @@ function render(){
   const m=state.macro||{}, busy=m.phase&&!/wait|idle|not running/i.test(m.phase);
   $("livedot").className="dot "+(!ok?"off":busy?"busy":"");
   $("livelabel").textContent=!ok?"offline":busy?"working":"online";
+
+  // stash toggle (main.py skips 'Stash All' after runs when off)
+  const stashOn=!state.settings||state.settings.stashEnabled!==false;
+  $("stashlabel").textContent="stash "+(stashOn?"on":"off");
+  $("stashdot").className="dot"+(stashOn?"":" off");
 
   // save freshness (game flushes its save every ~1-2 min)
   const fm=state.save&&state.save.fileModified;
@@ -305,6 +365,7 @@ function render(){
     const ready=left<=0;
     const pct=c.readyAt?Math.min(100,100*(1-left*1000/cdMs)):100;
     return `<div class="card ${ready?"rdy":""}">
+      ${c.custom&&CAN_EDIT?`<button class="rm" title="Stop farming ${c.key}" onclick="removeTarget('${c.key}')">&times;</button>`:""}
       <div class="top"><span class="stage">${c.stage}</span><span class="chip ${c.mode}">${c.mode}</span><span class="lv">Lv${c.level}</span></div>
       <div class="gauge">
         <div class="ring ${ready?"rdy":""}" style="--p:${pct}"><div class="lab">
@@ -321,6 +382,58 @@ function render(){
     `<tr><td class="stg">${d.stage}</td><td><span class="chip ${d.mode}">${d.mode}</span></td><td class="muted">${ago(d.dropAt)}</td></tr>`).join("")
     : `<tr><td colspan="3" class="empty">No drops recorded yet</td></tr>`;
 }
+// add/remove farm targets (local GUI only)
+let STAGES=null;
+async function openAddForm(){
+  const f=$("addform");
+  if(f.style.display!=="none"){f.style.display="none";return}
+  if(!STAGES){
+    try{STAGES=(await (await fetch("/stages")).json()).stages}catch(e){STAGES=[]}
+    const diffs=[...new Set(STAGES.map(s=>s.difficulty))];
+    $("f_diff").innerHTML=diffs.map(d=>`<option>${d}</option>`).join("");
+    $("f_diff").onchange=fillStages; fillStages();
+  }
+  $("f_err").textContent=""; f.style.display="";
+}
+function fillStages(){
+  const d=$("f_diff").value, sel=$("f_stage");
+  sel.innerHTML=STAGES.filter(s=>s.difficulty===d).map(s=>
+    `<option value="${s.spec}" data-lvl="${s.level}">${s.act}-${s.stage}${s.name?" · "+s.name:""} (Lv${s.level})</option>`).join("");
+  sel.onchange=()=>{const o=sel.selectedOptions[0]; $("f_level").placeholder="Lv"+((o&&o.dataset.lvl)||"?")};
+  sel.onchange();
+}
+async function addTarget(){
+  $("f_err").textContent="";
+  try{
+    const r=await fetch("/targets/add",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({spec:$("f_stage").value,level:$("f_level").value||null})});
+    const j=await r.json();
+    if(!j.ok){$("f_err").textContent=j.error||"failed";return}
+    $("f_level").value=""; $("addform").style.display="none"; poll();
+  }catch(e){$("f_err").textContent="request failed"}
+}
+async function removeTarget(key){
+  if(!confirm("Stop farming "+key+"? Its drop history is kept."))return;
+  try{
+    const r=await fetch("/targets/remove",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({spec:key})});
+    const j=await r.json();
+    if(!j.ok)alert(j.error||"failed");
+  }catch(e){alert("request failed")}
+  poll();
+}
+async function toggleStash(){
+  const on=!state||!state.settings||state.settings.stashEnabled!==false;
+  try{
+    await fetch("/settings",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({stashEnabled:!on})});
+  }catch(e){}
+  poll();
+}
+if(CAN_EDIT){
+  $("addbtn").onclick=openAddForm;$("f_go").onclick=addTarget;
+  $("stashpill").classList.add("clickable");$("stashpill").onclick=toggleStash;
+}else{$("addbtn").style.display="none"}
 const STATE_URL=window.STATE_URL||"/state";
 async function poll(){
   try{
@@ -338,9 +451,48 @@ SPRITES_DIR = Path(__file__).with_name("sprites")
 
 
 class _Handler(BaseHTTPRequestHandler):
+  def _send_json(self, obj: dict, code: int = 200) -> None:
+    body = json.dumps(obj).encode()
+    self.send_response(code)
+    self.send_header("Content-Type", "application/json")
+    self.send_header("Content-Length", str(len(body)))
+    self.end_headers()
+    self.wfile.write(body)
+
+  def do_POST(self):  # noqa: N802 — GUI actions: farm targets, behavior toggles
+    if self.path not in ("/targets/add", "/targets/remove", "/settings"):
+      self.send_error(404)
+      return
+    try:
+      length = int(self.headers.get("Content-Length") or 0)
+      payload = json.loads(self.rfile.read(length) or b"{}")
+    except ValueError:
+      self._send_json({"ok": False, "error": "bad JSON body"}, 400)
+      return
+    spec = str(payload.get("spec", "")).strip()
+    try:
+      if self.path == "/settings":
+        settings = get_settings()
+        for key, value in payload.items():
+          settings = set_setting(key, value)
+        self._send_json({"ok": True, "settings": settings})
+      elif self.path == "/targets/add":
+        level = payload.get("level")
+        target = chests.add_target(spec, int(level) if level not in (None, "") else None)
+        self._send_json({"ok": True, "key": target.key, "level": target.level})
+      elif chests.remove_target(spec):
+        self._send_json({"ok": True})
+      else:
+        self._send_json({"ok": False, "error": f"{spec} comes from config.py — remove it there"}, 400)
+    except ValueError as exc:
+      self._send_json({"ok": False, "error": str(exc)}, 400)
+
   def do_GET(self):  # noqa: N802
     if self.path == "/state":
       body = json.dumps(build_state()).encode()
+      ctype = "application/json"
+    elif self.path == "/stages":
+      body = json.dumps({"stages": chests.all_stages()}).encode()
       ctype = "application/json"
     elif self.path == "/":
       body = INDEX_HTML.encode()
