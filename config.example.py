@@ -29,10 +29,9 @@ CHEST_COOLDOWN_MIN = 12
 USE_METER_DROPS = False
 SAVE_POLL_SEC = 15          # how often runwatch re-reads the save
 
-# A blue chest only drops when a full run completes (boss kill). Gold accrues
-# all run long, so we gate on ELAPSED TIME >= the stage's clear time (×margin),
-# which guarantees a clear happened; gold-rise is just a "still farming" check.
-# Clear times measured from run history (median seconds).
+# LEGACY FALLBACK ONLY: drops are normally verified from the game's
+# Player.log in real time, and none of the clear-time machinery below is
+# used. It only matters if the log is missing (PLAYER_LOG misconfigured).
 CLEAR_TIME_SEC = {
     "2-5:HELL": 221,
     "3-5:NIGHTMARE": 182,

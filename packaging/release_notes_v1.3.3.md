@@ -1,5 +1,5 @@
-Faster stage turnaround.
+Simpler and snappier waiting.
 
-- The drop log is now checked every second (it's a cheap file-size stat), so the moment the game logs your blue chest the macro stamps it and moves on to the next ready stage — previously it could idle up to 15 seconds on the save-poll cadence. The heavier save-file read stays on its 15s interval. Tunable via `LOG_POLL_SEC` in `config.py` if you ever care.
+- **The drop log is the only thing the macro watches now.** While farming a stage it just polls `Player.log` every second (a file-size stat) until the game records your blue chest, then stamps and moves to the next ready stage immediately — previously detection could lag up to 15 seconds behind the save-poll cadence. Clear times, run counters and gold checks are gone from the normal path entirely (they remain only as a fallback if `Player.log` is unavailable).
 
 Everything else as in v1.3.2 (macro/stash off by default, log-verified drops, 63 MB download).
