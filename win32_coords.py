@@ -97,20 +97,26 @@ def click_screen(x: int, y: int) -> None:
   user32.mouse_event(0x0004, 0, 0, 0, 0)
 
 
-def drag_screen(x1: int, y1: int, x2: int, y2: int, *, steps: int = 10, duration: float = 0.2) -> None:
-  """Press, move in small steps so the game registers a drag, release."""
+def drag_screen(x1: int, y1: int, x2: int, y2: int, *, steps: int = 15, duration: float = 0.3) -> None:
+  """Press, move in small steps so the game registers a drag, release.
+
+  Drags stay deliberate (unlike clicks, which we keep fast): the game needs a
+  held press before movement to treat it as a drag, and a settle AFTER release
+  so the polled cursor is still at the end point when the release lands —
+  moving the cursor in the same frame as the release scrolls the map wildly."""
   import time
 
   _place_cursor(x1, y1)
-  time.sleep(0.02)
+  time.sleep(0.03)
   user32.mouse_event(0x0002, 0, 0, 0, 0)
-  time.sleep(0.06)
+  time.sleep(0.10)
   for i in range(1, steps + 1):
     t = i / steps
     user32.SetCursorPos(int(x1 + (x2 - x1) * t), int(y1 + (y2 - y1) * t))
     time.sleep(duration / steps)
-  time.sleep(0.04)
+  time.sleep(0.08)
   user32.mouse_event(0x0004, 0, 0, 0, 0)
+  time.sleep(0.10)  # let the game observe the release at the end point
 
 
 def activate_hwnd(hwnd: int) -> bool:

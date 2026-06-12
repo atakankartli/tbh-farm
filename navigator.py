@@ -167,7 +167,8 @@ def _find_node_scrolling(portal: Portal, act: int, stage: int, map_top: int):
   inverted = False
   last_seen: tuple[int, int] | None = None
 
-  for attempt in range(8):
+  stagnant = 0
+  for attempt in range(10):
     image = portal.capture()
     try:
       nodes = {n.stage: n for n in find_dungeon_nodes(image, act, map_top=map_top)}
@@ -182,9 +183,16 @@ def _find_node_scrolling(portal: Portal, act: int, stage: int, map_top: int):
     print(f"    stage {act}-{stage} not visible (map shows {act}-{lo}..{act}-{hi})")
 
     if (lo, hi) == last_seen:
-      if inverted:
-        raise RuntimeError(f"Stage {act}-{stage} not reachable by scrolling (stuck at {act}-{lo}..{act}-{hi})")
-      direction, inverted = -direction, True
+      # One stagnant view can just be a missed drag — retry the same
+      # direction once before concluding it's the wrong way / a map edge.
+      stagnant += 1
+      if stagnant >= 2:
+        if inverted:
+          raise RuntimeError(f"Stage {act}-{stage} not reachable by scrolling (stuck at {act}-{lo}..{act}-{hi})")
+        direction, inverted = -direction, True
+        stagnant = 0
+    else:
+      stagnant = 0
     last_seen = (lo, hi)
 
     dy = direction * (SCROLL_PX if stage > hi else -SCROLL_PX)
