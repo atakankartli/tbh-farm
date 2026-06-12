@@ -9,7 +9,8 @@
   }
   *{box-sizing:border-box}
   body{background:radial-gradient(1200px 600px at 70% -10%,#241a10 0%,var(--bg) 60%);
-    color:var(--ink); font:14px/1.5 'Segoe UI',system-ui,sans-serif; margin:0; padding:0 0 48px;}
+    color:var(--ink); font:14px/1.5 'Segoe UI',system-ui,sans-serif; margin:0; padding:0 0 48px;
+    overflow-x:hidden; -webkit-text-size-adjust:100%;}
   .wrap{max-width:1080px; margin:0 auto; padding:0 24px}
   /* header */
   header{position:sticky; top:0; z-index:10; backdrop-filter:blur(8px);
@@ -98,6 +99,30 @@
   .hero .gear{font-size:11px; color:var(--dim); margin-top:2px}
   .Knight{--rc:#d8c27a}.Ranger{--rc:#8fd06a}.Sorcerer{--rc:#c2a3ff}.Priest{--rc:#ffce6b}.Hunter{--rc:#6ad0c0}.Slayer{--rc:#ff8f6a}
   .hero .cls{color:var(--rc,#ece2d0)}
+  .tbl{overflow-x:auto}
+  /* phones */
+  @media (max-width:640px){
+    body{-webkit-text-size-adjust:100%; padding-bottom:28px}
+    .wrap{padding:0 12px}
+    header{margin-bottom:18px}
+    .hbar{padding:11px 12px; gap:10px}
+    .logo{width:26px;height:26px;font-size:14px}
+    h1{font-size:13px;letter-spacing:1px} .hsub{font-size:9px}
+    .pill{padding:5px 10px;font-size:11px}
+    .status{padding:12px 14px;gap:7px 12px;border-radius:12px}
+    .status .phase{font-size:11px}.status .detail{font-size:12px}
+    .status .run{margin-left:0;width:100%;font-size:11px}
+    .tiles{grid-template-columns:repeat(2,1fr);gap:9px;margin-bottom:22px}
+    .tile{padding:11px 13px;border-radius:11px}.tile .v{font-size:18px}
+    .seclabel{margin-bottom:11px;font-size:10px}
+    .party,.cards{grid-template-columns:1fr;gap:11px;margin-bottom:26px}
+    .hero{padding:12px 14px}.hero .portrait{width:50px;height:72px}
+    .card{padding:15px;border-radius:14px}
+    .ring{width:74px;height:74px}.ring::before{width:56px;height:56px}
+    .ring .t{font-size:16px}
+    th,td{padding:9px 12px}td.stg,th{font-size:12px}
+  }
+  @media (max-width:380px){ .tiles{grid-template-columns:1fr 1fr;gap:8px} .tile .v{font-size:16px} }
 </style><script>window.SPRITE_BASE="sprites/";</script></head><body>
 <header><div class="hbar">
   <div class="logo">&#x1F4E6;</div>
