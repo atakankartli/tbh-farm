@@ -106,7 +106,12 @@ def main() -> None:
 
     target = ready[0]
     handle_key = stage_key(target)
-    watcher = droplog.DropWatcher()  # tail Player.log from this moment
+    # Tail Player.log from this moment; without the log (unusual) fall back
+    # to legacy clear-based stamping rather than never stamping at all.
+    watcher = droplog.DropWatcher() if droplog.log_path().exists() else None
+    if watcher is None:
+      print(f"  WARNING: {droplog.log_path()} not found — drops can't be verified, "
+            "falling back to clear-based stamping")
 
     # If the game is already parked on this stage, clicking its node would
     # RESTART the run and lose the progress — skip navigation and just wait.
@@ -148,26 +153,24 @@ def main() -> None:
     result = runwatch.wait_for_clear(target, learn=not already_on, watcher=watcher)
 
     if result is None:
-      print("  No clear confirmed within timeout — leaving cooldown unset, will retry")
-      set_macro_status("run timeout", "", handle_key)
+      if watcher is not None:
+        # Runs kept chaining but the game never logged the drop — our timer
+        # is way off for this stage. Back off so other stages get farmed.
+        _no_drop_backoff[handle_key] = time.time()
+        print(f"  No blue drop within the timeout — not stamping; "
+              f"retrying {handle_key} in {NO_DROP_BACKOFF_SEC // 60}m")
+        set_macro_status("no drop (timeout)", f"{handle_key} retry in {NO_DROP_BACKOFF_SEC // 60}m")
+      else:
+        print("  No clear confirmed within timeout — leaving cooldown unset, will retry")
+        set_macro_status("run timeout", "", handle_key)
       time.sleep(config.POLL_INTERVAL)
       continue
 
-    if result != "dropped":
-      # Run cleared but the game never logged a 920xx1 blue-chest drop — the
-      # in-game cooldown wasn't actually ready. Do NOT stamp a phantom drop;
-      # back off briefly and let a later run produce the real one.
-      _no_drop_backoff[handle_key] = time.time()
-      print(f"  Run cleared but NO blue drop in the game log — not stamping; "
-            f"retrying {handle_key} in {NO_DROP_BACKOFF_SEC // 60}m")
-      set_macro_status("cleared, no drop", f"{handle_key} retry in {NO_DROP_BACKOFF_SEC // 60}m")
-      time.sleep(config.POLL_INTERVAL)
-      continue
-
-    # The game logged the drop — stamp the cooldown from verified reality.
+    # "dropped" (game-verified), or "cleared" in legacy no-log mode.
     _no_drop_backoff.pop(handle_key, None)
     chests.record_local_drop(target, now_ms())
-    print(f"  Stamped VERIFIED drop for {handle_key}; cooldown {config.CHEST_COOLDOWN_MIN}m starts now")
+    verified = "VERIFIED " if result == "dropped" else ""
+    print(f"  Stamped {verified}drop for {handle_key}; cooldown {config.CHEST_COOLDOWN_MIN}m starts now")
 
     # Open the blue chest if its bubble is on screen (white ones auto-open).
     try:

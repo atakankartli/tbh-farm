@@ -72,12 +72,15 @@ def clear_time(target: ReadyStage) -> float:
 
 def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
                    learn: bool = True, watcher=None) -> str | None:
-  """Block until the run on `target` finishes. Returns:
-    "dropped" — the game LOGGED a blue-chest drop for this stage's level
-                (droplog.DropWatcher; real-time, authoritative)
-    "cleared" — a run completed (save run-counter / timed gate) but no drop
-                line was seen; the caller decides whether to trust it
-    None      — nothing confirmed within the timeout
+  """Block until the game LOGS a blue-chest drop for this stage's level.
+
+  Cleared runs are NOT a result — the game chains runs on the stage, so when
+  a run finishes without the drop (our timer was ahead of the in-game chest
+  cooldown) we just keep waiting: a later chained run produces the real drop.
+  Returns:
+    "dropped" — drop line seen in Player.log (authoritative)
+    "cleared" — only in legacy mode (watcher=None): a run completed
+    None      — timeout
 
   learn=False skips clear-time learning — used when we joined a run already in
   progress (no navigation), where the measured time would be a partial run."""
@@ -100,17 +103,25 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
   try:
     base = savefile.load()
   except Exception as exc:
-    print(f"  runwatch: can't read save ({exc}); timed wait {int(need_sec)}s")
-    time.sleep(min(timeout, getattr(config, "FALLBACK_CLEAR_SEC", 300)))
-    return "dropped" if drop_seen() else "cleared"
+    print(f"  runwatch: can't read save ({exc}); waiting on the drop log only")
+    if watcher is None:
+      time.sleep(min(timeout, getattr(config, "FALLBACK_CLEAR_SEC", 300)))
+      return "cleared"
+    start = time.time()
+    while time.time() - start < timeout:
+      time.sleep(poll)
+      if drop_seen():
+        return "dropped"
+    return None
 
   base_gold = base.gold_earned
   prev_clears, prev_saved = base.total_clears, base.saved_at
   counter_ok = prev_clears > 0
+  clears_seen = 0
 
   start = time.time()
-  print(f"  Waiting for {target.act}-{target.stage} full clear "
-        f"(~{int(need_sec)}s; up to {int(timeout / 60)} min)...")
+  print(f"  Waiting for {target.act}-{target.stage} blue drop "
+        f"(clear ~{int(need_sec)}s; up to {int(timeout / 60)} min)...")
 
   while time.time() - start < timeout:
     time.sleep(poll)
@@ -118,9 +129,11 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
 
     # The game logs the drop the moment it happens — no save-flush lag.
     if drop_seen():
-      if learn and 0 < elapsed <= timeout:
+      # elapsed is a clean single-run measurement only if no earlier chained
+      # run finished first
+      if learn and clears_seen == 0 and 0 < elapsed <= timeout:
         _record_clear_time(key, elapsed)
-      print(f"  Blue drop LOGGED by the game after {int(elapsed)}s — clear + drop confirmed")
+      print(f"  Blue drop LOGGED by the game after {int(elapsed)}s")
       return "dropped"
 
     try:
@@ -133,23 +146,26 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
       runs = s.total_clears - prev_clears
       if runs > 0 and prev_saved >= start:
         # The whole flush window is after navigation, so the clear is ours.
-        # Best estimate of the kill moment: middle of the window.
         est = (prev_saved + s.saved_at) / 2 - start
         # est > timeout means the measurement is bogus (PC slept mid-wait)
-        if learn and runs == 1 and 0 < est <= timeout:
+        if learn and clears_seen == 0 and runs == 1 and 0 < est <= timeout:
           _record_clear_time(key, est)
-        print(f"  Clear confirmed by run counter: +{runs} run(s), {int(elapsed)}s elapsed")
-        return "dropped" if drop_seen() else "cleared"
-      # Window overlaps pre-navigation time (could contain the previous
-      # stage's clear) or no new runs yet — re-baseline on this flush.
+        clears_seen += runs
+        if watcher is None:
+          print(f"  Clear confirmed by run counter: +{runs} run(s), {int(elapsed)}s elapsed")
+          return "cleared"
+        print(f"  {clears_seen} run(s) cleared, no blue drop yet — the game chains "
+              f"runs here, waiting for the drop...")
+      # Re-baseline on every flush (pre-navigation windows are ambiguous).
       prev_clears, prev_saved = s.total_clears, s.saved_at
 
-    if elapsed >= need_sec and gained >= gold_floor:
+    if watcher is None and elapsed >= need_sec and gained >= gold_floor:
       print(f"  Clear confirmed: {int(elapsed)}s elapsed, +{gained:,} gold")
-      return "dropped" if drop_seen() else "cleared"
-    if elapsed >= need_sec and gained < gold_floor:
+      return "cleared"
+    if elapsed >= need_sec and not clears_seen and gained < gold_floor:
       # time's up but no gold — game paused/stuck; keep waiting until timeout
       print(f"  ...{int(elapsed)}s elapsed but only +{gained:,} gold; still waiting")
 
-  print(f"  runwatch: no clear confirmed within {int(timeout / 60)} min")
+  what = "blue drop" if watcher is not None else "clear"
+  print(f"  runwatch: no {what} within {int(timeout / 60)} min")
   return None

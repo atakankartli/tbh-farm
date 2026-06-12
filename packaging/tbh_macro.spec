@@ -23,10 +23,19 @@ common = dict(
     binaries=[],
     datas=datas,
     hiddenimports=[],
-    excludes=["config"],
+    # config: user-editable, lives next to the exe. The rest is dead weight
+    # dragged in by hooks: pytesseract's hook pulls pandas (we only use dict
+    # output), pandas pulls lxml/pytz/Cython, PIL pulls tkinter.
+    excludes=["config", "pandas", "lxml", "pytz", "Cython",
+              "tkinter", "_tkinter", "PIL.ImageTk"],
     runtime_hooks=[os.path.join(SPECPATH, "runtime_hook.py")],
     noarchive=False,
 )
+
+
+def slim(toc):
+    """Drop opencv's 28MB ffmpeg video codec — we never open videos."""
+    return [entry for entry in toc if "opencv_videoio_ffmpeg" not in entry[0].lower()]
 
 a_main = Analysis([os.path.join(ROOT, "main.py")], **common)
 a_vision = Analysis([os.path.join(ROOT, "test_vision.py")], **common)
@@ -57,9 +66,9 @@ exe_vision = EXE(
 coll = COLLECT(
     exe_main,
     exe_vision,
-    a_main.binaries,
+    slim(a_main.binaries),
     a_main.datas,
-    a_vision.binaries,
+    slim(a_vision.binaries),
     a_vision.datas,
     strip=False,
     upx=False,
