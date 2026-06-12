@@ -198,6 +198,7 @@ def setup() -> None:
 
   # 2) build the gh-pages site in its own working copy
   print(f"Building site in {PUBLISH_DIR} ...")
+  PUBLISH_DIR.mkdir(parents=True, exist_ok=True)
   if not (PUBLISH_DIR / ".git").exists():
     _run(["git", "init", "-b", "gh-pages"], cwd=PUBLISH_DIR)
     _run(["git", "remote", "add", "origin", REMOTE], cwd=PUBLISH_DIR)
