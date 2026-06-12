@@ -210,6 +210,8 @@ INDEX_HTML = """<!doctype html>
     font-weight:700; cursor:pointer}
   .addform .go:hover{background:var(--gold2)}
   .addform .err{color:var(--red); font-size:12px}
+  .lv.edit{cursor:pointer}
+  .lv.edit:hover{background:rgba(240,168,48,.28)}
   .card .rm{position:absolute; top:10px; right:10px; z-index:1; width:22px; height:22px; border-radius:6px;
     background:transparent; color:var(--dim); border:1px solid transparent; font-size:14px; line-height:1;
     cursor:pointer; display:grid; place-items:center}
@@ -379,7 +381,7 @@ function render(){
     const pct=c.readyAt?Math.min(100,100*(1-left*1000/cdMs)):100;
     return `<div class="card ${ready?"rdy":""}">
       ${CAN_EDIT?`<button class="rm" title="Stop farming ${c.key}" onclick="removeTarget('${c.key}')">&times;</button>`:""}
-      <div class="top"><span class="stage">${c.stage}</span><span class="chip ${c.mode}">${c.mode}</span><span class="lv">Lv${c.level}</span></div>
+      <div class="top"><span class="stage">${c.stage}</span><span class="chip ${c.mode}">${c.mode}</span><span class="lv${CAN_EDIT?" edit":""}" ${CAN_EDIT?`onclick="editLevel('${c.key}',${c.level})" title="chest level — drops are matched by it (click to change)"`:""}>Lv${c.level}</span></div>
       <div class="gauge">
         <div class="ring ${ready?"rdy":""}" style="--p:${pct}"><div class="lab">
           ${ready?'<div class="t">READY</div>':`<div class="t">${fmt(left)}</div><div class="u">left</div>`}
@@ -424,6 +426,19 @@ async function addTarget(){
     if(!j.ok){$("f_err").textContent=j.error||"failed";return}
     $("f_level").value=""; $("addform").style.display="none"; poll();
   }catch(e){$("f_err").textContent="request failed"}
+}
+async function editLevel(key,current){
+  const v=prompt("Chest level for "+key+" (drops are matched by item key 920<level>1; 0 = match any):",current);
+  if(v===null)return;
+  const lvl=parseInt(v,10);
+  if(isNaN(lvl)||lvl<0||lvl>99){alert("level must be 0-99");return}
+  try{
+    const r=await fetch("/targets/level",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({spec:key,level:lvl})});
+    const j=await r.json();
+    if(!j.ok)alert(j.error||"failed");
+  }catch(e){alert("request failed")}
+  poll();
 }
 async function removeTarget(key){
   if(!confirm("Stop farming "+key+"? Its drop history is kept."))return;
@@ -474,7 +489,7 @@ class _Handler(BaseHTTPRequestHandler):
     self.wfile.write(body)
 
   def do_POST(self):  # noqa: N802 — GUI actions: farm targets, behavior toggles
-    if self.path not in ("/targets/add", "/targets/remove", "/settings"):
+    if self.path not in ("/targets/add", "/targets/remove", "/targets/level", "/settings"):
       self.send_error(404)
       return
     try:
@@ -493,6 +508,9 @@ class _Handler(BaseHTTPRequestHandler):
       elif self.path == "/targets/add":
         level = payload.get("level")
         target = chests.add_target(spec, int(level) if level not in (None, "") else None)
+        self._send_json({"ok": True, "key": target.key, "level": target.level})
+      elif self.path == "/targets/level":
+        target = chests.set_target_level(spec, int(payload.get("level", -1)))
         self._send_json({"ok": True, "key": target.key, "level": target.level})
       elif chests.remove_target(spec):
         self._send_json({"ok": True})

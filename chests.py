@@ -105,18 +105,22 @@ def _parse_spec(spec: str, level: int = 0, custom: bool = False) -> Target:
 
 
 def _load_targets_file() -> dict:
-  """{'extras': [{spec, level}, ...], 'disabled': ['2-5:HELL', ...]}.
-  A bare list (the v1.1.0 format) is read as extras with nothing disabled."""
+  """{'extras': [{spec, level}], 'disabled': ['2-5:HELL'], 'levels': {key: lvl}}.
+  'levels' holds GUI-set chest-level overrides (config.py stays untouched).
+  A bare list (the v1.1.0 format) is read as extras with nothing else."""
+  empty = {"extras": [], "disabled": [], "levels": {}}
   try:
     with open(EXTRA_TARGETS_PATH, encoding="utf-8") as fh:
       raw = json.load(fh)
   except (OSError, ValueError):
-    return {"extras": [], "disabled": []}
+    return empty
   if isinstance(raw, list):
-    return {"extras": [e for e in raw if isinstance(e, dict) and "spec" in e], "disabled": []}
+    return {**empty, "extras": [e for e in raw if isinstance(e, dict) and "spec" in e]}
   return {
     "extras": [e for e in raw.get("extras", []) if isinstance(e, dict) and "spec" in e],
     "disabled": [s for s in raw.get("disabled", []) if isinstance(s, str)],
+    "levels": {k: int(v) for k, v in raw.get("levels", {}).items()
+               if isinstance(k, str) and isinstance(v, (int, float))},
   }
 
 
@@ -140,14 +144,36 @@ def get_targets() -> list[Target]:
   entries += [(e["spec"], e.get("level", 0), True) for e in data["extras"]]
 
   disabled = set(data["disabled"])
+  overrides = data["levels"]
   targets: list[Target] = []
   seen: set[str] = set()
   for spec, level, custom in entries:
     target = _parse_spec(spec, level, custom)
     if target.key not in seen and target.key not in disabled:
       seen.add(target.key)
+      if target.key in overrides:
+        target = _parse_spec(spec, overrides[target.key], custom)
       targets.append(target)
   return targets
+
+
+def set_target_level(spec: str, level: int) -> Target:
+  """GUI: change a target's chest level at runtime. The level is what drop
+  verification matches against (item key 920<level>1), so a wrong level makes
+  real drops invisible — this fixes it without touching config.py."""
+  key = _parse_spec(spec).key
+  if not 0 <= int(level) <= 99:
+    raise ValueError("level must be 0-99 (0 = match any blue drop)")
+  current = {t.key: t for t in get_targets()}
+  if key not in current:
+    raise ValueError(f"{key} is not a farm target")
+  data = _load_targets_file()
+  data["levels"][key] = int(level)
+  for extra in data["extras"]:  # keep the extras entry consistent too
+    if _parse_spec(extra["spec"]).key == key:
+      extra["level"] = int(level)
+  _save_targets_file(data)
+  return _parse_spec(spec, int(level), current[key].custom)
 
 
 def all_stages() -> list[dict]:
