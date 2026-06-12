@@ -76,7 +76,7 @@ def main() -> None:
   act_for_nodes = args.act
   map_top = 0
   try:
-    tabs = vision.find_act_tabs(words)
+    tabs = vision.find_act_tabs(words, panel_width=image.shape[1])
     map_top = max(t.y + t.h for t in tabs.values()) + 5
     for act, tab in sorted(tabs.items()):
       print(f"Act {act} tab at ({tab.cx},{tab.cy})")

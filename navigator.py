@@ -208,7 +208,7 @@ def go_to_stage(target: ReadyStage) -> None:
   _ensure_difficulty(portal, target.difficulty)
 
   _, words = portal.capture_words()
-  tabs = find_act_tabs(words)
+  tabs = find_act_tabs(words, panel_width=portal.region.x1 - portal.region.x0)
   tab = tabs.get(target.act)
   if tab is None:
     raise RuntimeError(f"Act {target.act} tab not found (saw acts: {sorted(tabs)})")

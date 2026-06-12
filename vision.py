@@ -364,9 +364,16 @@ def find_difficulty_option(words: list[Word], difficulty: str) -> Word:
 
 # ----------------------------------------------------------------- act tabs
 
-def find_act_tabs(words: list[Word]) -> dict[int, Word]:
+ACT_TAB_SPACING_RATIO = 97 / 440  # measured: tabs sit 97px apart on a 440px panel
+
+
+def find_act_tabs(words: list[Word], *, panel_width: int | None = None) -> dict[int, Word]:
   """The tab row has all acts side by side; the map banner repeats the selected
-  act lower down, so group 'Act N' hits by row and keep the biggest/topmost row."""
+  act lower down, so group 'Act N' hits by row and keep the biggest/topmost row.
+
+  Tab styling varies with selection state (and the Torment theme), so OCR
+  often reads only some of the three tabs. They are evenly spaced in one row —
+  given panel_width, any missing tabs are extrapolated from the ones found."""
   hits: list[tuple[int, Word]] = []
   for word in words:
     if word.text.upper() != "ACT":
@@ -410,7 +417,23 @@ def find_act_tabs(words: list[Word]) -> dict[int, Word]:
 
   # Tab row: most distinct acts; tie broken by topmost
   rows.sort(key=lambda row: (-len({act for act, _ in row}), row[0][1].y))
-  return {act: word for act, word in rows[0]}
+  tabs = {act: word for act, word in rows[0]}
+
+  missing = [act for act in (1, 2, 3) if act not in tabs]
+  if missing and tabs and panel_width:
+    detected = sorted(tabs.items())
+    if len(detected) >= 2:
+      (a1, w1), (a2, w2) = detected[0], detected[-1]
+      spacing = (w2.cx - w1.cx) / (a2 - a1)
+    else:
+      spacing = panel_width * ACT_TAB_SPACING_RATIO
+    anchor_act, anchor = detected[0]
+    for act in missing:
+      cx = int(anchor.cx + spacing * (act - anchor_act))
+      if 0 <= cx <= panel_width:
+        tabs[act] = Word(text=f"Act {act}", x=cx - anchor.w // 2, y=anchor.y,
+                         w=anchor.w, h=anchor.h, conf=0)
+  return tabs
 
 
 def map_is_locked(image_bgr: np.ndarray, *, map_top: int = 0) -> bool:
