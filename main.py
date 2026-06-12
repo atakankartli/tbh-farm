@@ -20,7 +20,13 @@ import time
 import chests
 import config
 import runwatch
-from navigator import collect_blue_chests, dismiss_error_dialog, go_to_stage, stash_all
+from navigator import (
+  StageLockedError,
+  collect_blue_chests,
+  dismiss_error_dialog,
+  go_to_stage,
+  stash_all,
+)
 from tracker import ReadyStage
 from webgui import get_settings, set_macro_status, start_in_background
 
@@ -97,6 +103,15 @@ def main() -> None:
     set_macro_status("navigating", "", handle_key)
     try:
       go_to_stage(target)
+    except StageLockedError as exc:
+      # Retrying every poll would click forever at a chained map; drop the
+      # target and keep farming the rest. Re-add it from the GUI once the
+      # act is unlocked in-game.
+      chests.remove_target(handle_key)
+      print(f"Stage locked: {exc} — removed {handle_key} from targets; "
+            f"re-add it from the web GUI after unlocking the act in-game")
+      set_macro_status("stage locked", f"{handle_key} removed from targets (act locked in-game)")
+      continue
     except Exception as exc:
       print(f"Navigation failed: {exc}")
       set_macro_status("navigation failed", str(exc), handle_key)

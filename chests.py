@@ -166,6 +166,32 @@ def all_stages() -> list[dict]:
   return out
 
 
+def _locked_reason(target: Target) -> str | None:
+  """Progression check against the save: stages unlock in numeric stage-key
+  order, one past maxCompletedStage (verified == tbh-copilot's stageOrder).
+  Returns a message if the stage is clearly locked; None if unlocked or the
+  save can't be read. Torment acts have an extra in-game gate this can't see —
+  the navigator detects the chained map at runtime for those."""
+  try:
+    import savefile
+    max_completed = savefile.load().max_completed_stage
+  except Exception:
+    return None
+  if not max_completed:
+    return None
+  order = sorted(d * 1000 + a * 100 + s
+                 for d in (1, 2, 3, 4) for a in (1, 2, 3) for s in range(1, 11))
+  if max_completed not in order:
+    return None
+  highest = order[min(order.index(max_completed) + 1, len(order) - 1)]
+  if target.stage_key > highest:
+    d, a, s = highest // 1000, (highest % 1000) // 100, highest % 100
+    diff_name = {v: k for k, v in _DIFFICULTY_NUM.items()}.get(d, d)
+    return (f"{target.key} is still locked in-game "
+            f"(highest unlocked stage: {a}-{s}:{diff_name})")
+  return None
+
+
 def add_target(spec: str, level: int | None = None) -> Target:
   """Add a farm target at runtime (web GUI). Persisted in macro_targets.json,
   picked up by the loop on its next poll. Level defaults to the stage's level.
@@ -174,6 +200,9 @@ def add_target(spec: str, level: int | None = None) -> Target:
   info = _STAGE_TABLE.get(str(target.stage_key))
   if info is None:
     raise ValueError(f"stage {target.key} does not exist")
+  locked = _locked_reason(target)
+  if locked:
+    raise ValueError(locked)
   if level is None:
     target = _parse_spec(spec, int(info.get("lvl", 0)), custom=True)
   data = _load_targets_file()

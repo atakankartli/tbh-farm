@@ -413,6 +413,20 @@ def find_act_tabs(words: list[Word]) -> dict[int, Word]:
   return {act: word for act, word in rows[0]}
 
 
+def map_is_locked(image_bgr: np.ndarray, *, map_top: int = 0) -> bool:
+  """Locked acts cover the map with crossed chains and a padlock (Torment:
+  saturated red). Measured 9% saturated-red pixels on a locked Torment map vs
+  0.4% on an unlocked one. Only meaningful when node detection found nothing —
+  an unlocked map that happens to be red-themed still shows node circles."""
+  crop = image_bgr[map_top:, :]
+  if crop.size == 0:
+    return False
+  hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+  hue, sat, val = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+  red = ((hue <= 8) | (hue >= 172)) & (sat >= 120) & (val >= 70)
+  return float(red.mean()) >= 0.04
+
+
 # ------------------------------------------------------------- dungeon nodes
 
 _NODE_LABEL_RE = re.compile(r"(\d)\s*-\s*(\d)")

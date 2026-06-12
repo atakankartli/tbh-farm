@@ -23,6 +23,7 @@ from vision import (
   find_stash_all_button,
   find_stash_panel,
   find_stash_tabs,
+  map_is_locked,
   ocr_words,
   ocr_words_multi,
 )
@@ -32,6 +33,11 @@ from windows import WindowRect, find_game_window
 STEP_DELAY = getattr(config, "VISION_STEP_DELAY", 0.3)
 DROPDOWN_DELAY = getattr(config, "VISION_DROPDOWN_DELAY", 0.5)
 SCROLL_PX = 140  # map drag distance per scroll attempt
+
+
+class StageLockedError(RuntimeError):
+  """The act's map is chained shut in-game (e.g. a Torment act not yet
+  unlocked) — retrying won't help until the player progresses."""
 
 
 def _click_neutral(rect: WindowRect) -> None:
@@ -145,7 +151,12 @@ def _find_node_scrolling(portal: Portal, act: int, stage: int, map_top: int):
 
   for attempt in range(8):
     image = portal.capture()
-    nodes = {n.stage: n for n in find_dungeon_nodes(image, act, map_top=map_top)}
+    try:
+      nodes = {n.stage: n for n in find_dungeon_nodes(image, act, map_top=map_top)}
+    except RuntimeError as exc:
+      if map_is_locked(image, map_top=map_top):
+        raise StageLockedError(f"act {act} is locked (map is chained shut)") from exc
+      raise
     if stage in nodes:
       return nodes[stage]
 
