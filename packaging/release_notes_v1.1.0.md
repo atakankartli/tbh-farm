@@ -4,6 +4,7 @@ Standalone Windows build — no Python required.
 - **Add Dungeon** button in the Chest Timers section: pick difficulty + stage (with names and levels from the game data), and the macro starts farming it on its next poll — no restart, no config editing. Runtime-added dungeons show a ✕ to remove them; chest level auto-fills from the stage. Stored in `_internal/macro_targets.json`, so they survive restarts.
 - **Stash toggle** pill in the header: click to turn the post-run "Stash All" sweep on/off (default: on, persisted in `_internal/macro_settings.json`). Takes effect from the next cleared run.
 - The published GitHub Pages mirror stays read-only — editing is only available on the local dashboard.
+- **Auto-learned clear times**: run completions are now confirmed by the save's lifetime run counter, and each completed run re-measures the stage's clear time (stored in `_internal/macro_clear_times.json`, overriding `CLEAR_TIME_SEC`). Dungeons added from the GUI get timed automatically, and waits shrink as your party gets stronger.
 
 **Download `tbh-macro-windows-x64.zip` below**, extract it anywhere, and read `README.txt` inside.
 
