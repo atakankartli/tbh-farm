@@ -20,7 +20,7 @@ import time
 import chests
 import config
 import runwatch
-from navigator import dismiss_error_dialog, go_to_stage, stash_all
+from navigator import collect_blue_chests, dismiss_error_dialog, go_to_stage, stash_all
 from tracker import ReadyStage
 from webgui import get_settings, set_macro_status, start_in_background
 
@@ -116,6 +116,13 @@ def main() -> None:
     # Stamp the drop ourselves — this is the authoritative cooldown source.
     chests.record_local_drop(target, now_ms())
     print(f"  Stamped drop for {handle_key}; cooldown {config.CHEST_COOLDOWN_MIN}m starts now")
+
+    # Open the blue chest if its bubble is on screen (white ones auto-open).
+    try:
+      if collect_blue_chests():
+        set_macro_status("collecting blue chest", "", handle_key)
+    except Exception as exc:
+      print(f"  Blue-chest check failed: {exc}")
 
     if get_settings().get("stashEnabled", True):
       set_macro_status("stashing loot", "", handle_key)

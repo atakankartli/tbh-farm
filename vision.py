@@ -209,6 +209,59 @@ def find_portal_orb(image_bgr: np.ndarray) -> tuple[int, int] | None:
   return (best[1], best[2]) if best else None
 
 
+# ------------------------------------------------------------- chest bubbles
+
+@dataclass(frozen=True)
+class ChestBubble:
+  cx: int
+  cy: int
+  blue_fraction: float  # of the chest sprite's pixels; ~0 for wooden/white chests
+
+  @property
+  def is_blue(self) -> bool:
+    return self.blue_fraction >= 0.25
+
+
+def find_chest_bubbles(image_bgr: np.ndarray, *, min_y: int = 0) -> list[ChestBubble]:
+  """Unopened chests float in a speech bubble above the game strip — white for
+  normal chests, light-blue-tinted for stage-boss ones (measured: bubble bg
+  HSV val>190 sat<75 in both). Detect the bubble, then classify the chest
+  sprite inside by color so the caller can click blue (stage-boss) chests and
+  leave the rest alone. The cyan water backdrop has high saturation and the
+  rocks low value, so neither reads as bubble background."""
+  crop = image_bgr[min_y:, :]
+  hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+  sat, val = hsv[:, :, 1], hsv[:, :, 2]
+  bg_like = ((val > 190) & (sat < 75)).astype(np.uint8) * 255
+  bg_like = cv2.morphologyEx(bg_like, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+  bubbles: list[ChestBubble] = []
+  contours, _ = cv2.findContours(bg_like, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+  for contour in contours:
+    area = cv2.contourArea(contour)
+    if area < 1200:
+      continue
+    x, y, w, h = cv2.boundingRect(contour)
+    # loose shape gates (bubbles can merge with bright rocks in the backdrop);
+    # the blue-fraction classification below provides the precision
+    if area / (w * h) < 0.55 or not 0.7 <= w / max(h, 1) <= 2.4:
+      continue
+    # chest sprite = saturated/dark pixels inside the bubble (bg + gray item
+    # slots are bright and unsaturated)
+    inner_hsv = hsv[y + 6:y + max(int(h * 0.8), 7), x + 6:max(x + w - 6, x + 7)]
+    if inner_hsv.size == 0:
+      continue
+    isat, ival = inner_hsv[:, :, 1], inner_hsv[:, :, 2]
+    sprite = ~((ival > 190) & (isat < 75))
+    if sprite.sum() < 80:
+      continue
+    # hue >= 100 excludes the cyan water backdrop (measured hue 80-99)
+    blue = (inner_hsv[:, :, 0] >= 100) & (inner_hsv[:, :, 0] <= 135) & (isat >= 90)
+    fraction = float((blue & sprite).sum()) / max(int(sprite.sum()), 1)
+    bubbles.append(ChestBubble(cx=x + w // 2, cy=min_y + y + h // 2, blue_fraction=fraction))
+  return bubbles
+
+
 # -------------------------------------------------------------- stash panel
 
 STASH_TAB_SPACING = 64  # page tabs are evenly spaced; OCR'd digits anchor the row

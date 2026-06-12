@@ -15,6 +15,7 @@ from vision import (
   PanelRegion,
   capture_window,
   find_act_tabs,
+  find_chest_bubbles,
   find_difficulty_words,
   find_dungeon_nodes,
   find_portal_orb,
@@ -215,6 +216,29 @@ def dismiss_error_dialog() -> bool:
   click_screen(rect.left + confirm.cx, rect.top + confirm.cy)
   time.sleep(STEP_DELAY)
   return True
+
+
+def collect_blue_chests(max_rounds: int = 3) -> int:
+  """Click unopened BLUE (stage-boss) chest bubbles floating over the game
+  strip; wooden/white chests are left to auto-open. Each bubble gets a burst
+  of 3 clicks (single clicks sometimes don't register), then a re-capture
+  confirms it's gone — up to max_rounds. Returns bubbles collected."""
+  rect = find_game_window(activate=True).refresh()
+  collected = 0
+  for _ in range(max_rounds):
+    bubbles = find_chest_bubbles(capture_window(rect), min_y=int(rect.height * 0.55))
+    blue = [b for b in bubbles if b.is_blue]
+    if not blue:
+      break
+    chest = blue[0]
+    print(f"  Blue chest bubble @ window({chest.cx}, {chest.cy}) "
+          f"(blue {chest.blue_fraction:.0%}) -> clicking")
+    for _tap in range(3):
+      click_screen(rect.left + chest.cx, rect.top + chest.cy)
+      time.sleep(0.15)
+    collected += 1
+    time.sleep(STEP_DELAY)
+  return collected
 
 
 def stash_all(pages: int | None = None) -> None:
