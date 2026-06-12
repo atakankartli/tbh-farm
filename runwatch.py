@@ -70,9 +70,14 @@ def clear_time(target: ReadyStage) -> float:
   return table.get(key, getattr(config, "CLEAR_TIME_DEFAULT", 300))
 
 
-def wait_for_clear(target: ReadyStage, timeout: float | None = None, *, learn: bool = True) -> bool:
-  """Block until a full run has completed on `target` (so the boss was killed
-  and the chest dropped), or timeout. Returns True on a confirmed clear.
+def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
+                   learn: bool = True, watcher=None) -> str | None:
+  """Block until the run on `target` finishes. Returns:
+    "dropped" — the game LOGGED a blue-chest drop for this stage's level
+                (droplog.DropWatcher; real-time, authoritative)
+    "cleared" — a run completed (save run-counter / timed gate) but no drop
+                line was seen; the caller decides whether to trust it
+    None      — nothing confirmed within the timeout
 
   learn=False skips clear-time learning — used when we joined a run already in
   progress (no navigation), where the measured time would be a partial run."""
@@ -83,12 +88,21 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *, learn: b
   gold_floor = getattr(config, "GOLD_SANITY_FLOOR", 3000)
   key = _key(target)
 
+  def drop_seen() -> bool:
+    if watcher is None:
+      return False
+    for level in watcher.new_blue_drops():
+      if not target.level or level == target.level:
+        return True
+      print(f"  Ignoring blue drop of level {level} (target is Lv{target.level})")
+    return False
+
   try:
     base = savefile.load()
   except Exception as exc:
     print(f"  runwatch: can't read save ({exc}); timed wait {int(need_sec)}s")
     time.sleep(min(timeout, getattr(config, "FALLBACK_CLEAR_SEC", 300)))
-    return True
+    return "dropped" if drop_seen() else "cleared"
 
   base_gold = base.gold_earned
   prev_clears, prev_saved = base.total_clears, base.saved_at
@@ -101,6 +115,14 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *, learn: b
   while time.time() - start < timeout:
     time.sleep(poll)
     elapsed = time.time() - start
+
+    # The game logs the drop the moment it happens — no save-flush lag.
+    if drop_seen():
+      if learn and 0 < elapsed <= timeout:
+        _record_clear_time(key, elapsed)
+      print(f"  Blue drop LOGGED by the game after {int(elapsed)}s — clear + drop confirmed")
+      return "dropped"
+
     try:
       s = savefile.load()
     except Exception:
@@ -117,17 +139,17 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *, learn: b
         if learn and runs == 1 and 0 < est <= timeout:
           _record_clear_time(key, est)
         print(f"  Clear confirmed by run counter: +{runs} run(s), {int(elapsed)}s elapsed")
-        return True
+        return "dropped" if drop_seen() else "cleared"
       # Window overlaps pre-navigation time (could contain the previous
       # stage's clear) or no new runs yet — re-baseline on this flush.
       prev_clears, prev_saved = s.total_clears, s.saved_at
 
     if elapsed >= need_sec and gained >= gold_floor:
       print(f"  Clear confirmed: {int(elapsed)}s elapsed, +{gained:,} gold")
-      return True
+      return "dropped" if drop_seen() else "cleared"
     if elapsed >= need_sec and gained < gold_floor:
       # time's up but no gold — game paused/stuck; keep waiting until timeout
       print(f"  ...{int(elapsed)}s elapsed but only +{gained:,} gold; still waiting")
 
   print(f"  runwatch: no clear confirmed within {int(timeout / 60)} min")
-  return False
+  return None

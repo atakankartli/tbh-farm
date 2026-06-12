@@ -22,7 +22,17 @@ class POINT(ctypes.Structure):
 
 
 def enable_dpi_awareness() -> None:
-  """Match mouse coords to GetWindowRect on multi-monitor + scaled displays."""
+  """Match mouse coords to GetWindowRect on multi-monitor + scaled displays.
+
+  Per-monitor-v2 first: with mixed per-monitor scaling, anything less leaves
+  GetWindowRect virtualized on secondary monitors while SetCursorPos uses
+  physical pixels — clicks land in the wrong place on multi-monitor setups."""
+  try:
+    # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4 (Win10 1703+)
+    if user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):
+      return
+  except Exception:
+    pass
   try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
     return
@@ -62,25 +72,44 @@ def move_cursor(x: int, y: int) -> None:
   user32.SetCursorPos(int(x), int(y))
 
 
+def _place_cursor(x: int, y: int) -> None:
+  """SetCursorPos, verifying it landed (a monitor-boundary clamp or DPI
+  mismatch silently moves it); one retry, then a loud warning so wrong-spot
+  clicks are diagnosable instead of mysterious."""
+  for _attempt in range(2):
+    user32.SetCursorPos(int(x), int(y))
+    got_x, got_y = get_cursor_pos()
+    if abs(got_x - x) <= 2 and abs(got_y - y) <= 2:
+      return
+  print(f"    WARNING: cursor requested ({x}, {y}) but landed ({got_x}, {got_y}) "
+        f"— check monitor layout/DPI scaling")
+
+
 def click_screen(x: int, y: int) -> None:
-  user32.SetCursorPos(int(x), int(y))
+  _place_cursor(x, y)
+  # The game POLLS the cursor position; a click in the same frame as the move
+  # can register at the old spot. A short settle makes clicks land reliably.
+  import time
+  time.sleep(0.02)
   # MOUSEEVENTF_LEFTDOWN=0x0002, MOUSEEVENTF_LEFTUP=0x0004
   user32.mouse_event(0x0002, 0, 0, 0, 0)
+  time.sleep(0.01)
   user32.mouse_event(0x0004, 0, 0, 0, 0)
 
 
-def drag_screen(x1: int, y1: int, x2: int, y2: int, *, steps: int = 15, duration: float = 0.3) -> None:
+def drag_screen(x1: int, y1: int, x2: int, y2: int, *, steps: int = 10, duration: float = 0.2) -> None:
   """Press, move in small steps so the game registers a drag, release."""
   import time
 
-  user32.SetCursorPos(int(x1), int(y1))
+  _place_cursor(x1, y1)
+  time.sleep(0.02)
   user32.mouse_event(0x0002, 0, 0, 0, 0)
-  time.sleep(0.08)
+  time.sleep(0.06)
   for i in range(1, steps + 1):
     t = i / steps
     user32.SetCursorPos(int(x1 + (x2 - x1) * t), int(y1 + (y2 - y1) * t))
     time.sleep(duration / steps)
-  time.sleep(0.05)
+  time.sleep(0.04)
   user32.mouse_event(0x0004, 0, 0, 0, 0)
 
 

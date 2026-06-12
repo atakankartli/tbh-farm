@@ -86,6 +86,11 @@ USE_ABSOLUTE_COORDS = True
 # Tesseract OCR install path (Windows). Leave None if tesseract is on PATH.
 TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
+# The game's Unity log (blue-chest drops are verified from its
+# 'GetBoxCount ... ItemKey : 920<level>1' lines). Defaults to Player.log in
+# the SAVE_FILE folder; set this only if yours lives elsewhere.
+PLAYER_LOG = None
+
 # Seconds between cooldown checks
 POLL_INTERVAL = 5
 

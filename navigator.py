@@ -265,7 +265,7 @@ def collect_blue_chests(max_rounds: int = 3) -> int:
           f"(blue {chest.blue_fraction:.0%}) -> clicking")
     for _tap in range(3):
       click_screen(rect.left + chest.cx, rect.top + chest.cy)
-      time.sleep(0.15)
+      time.sleep(0.05)
     _park_cursor(rect)
     collected += 1
     time.sleep(STEP_DELAY)
