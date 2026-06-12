@@ -58,6 +58,10 @@ def get_cursor_pos() -> tuple[int, int]:
   return pt.x, pt.y
 
 
+def move_cursor(x: int, y: int) -> None:
+  user32.SetCursorPos(int(x), int(y))
+
+
 def click_screen(x: int, y: int) -> None:
   user32.SetCursorPos(int(x), int(y))
   # MOUSEEVENTF_LEFTDOWN=0x0002, MOUSEEVENTF_LEFTUP=0x0004

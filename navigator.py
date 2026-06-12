@@ -27,7 +27,7 @@ from vision import (
   ocr_words,
   ocr_words_multi,
 )
-from win32_coords import click_screen, drag_screen
+from win32_coords import click_screen, drag_screen, move_cursor
 from windows import WindowRect, find_game_window
 
 STEP_DELAY = getattr(config, "VISION_STEP_DELAY", 0.3)
@@ -40,11 +40,20 @@ class StageLockedError(RuntimeError):
   unlocked) — retrying won't help until the player progresses."""
 
 
+def _park_cursor(rect: WindowRect) -> None:
+  """Move the mouse to empty game background (the water band between the
+  panels and the strip). A cursor left hovering over UI text occludes it in
+  the next capture — e.g. parked on the difficulty dropdown it hides the
+  selected label, so OCR can't see the difficulty was already set."""
+  move_cursor(rect.left + 40, rect.top + int(rect.height * 0.78))
+
+
 def _click_neutral(rect: WindowRect) -> None:
   """Click empty game background (below the panels) to dismiss any topmost
   shell popup overlapping the capture region."""
   print("    panel obscured? clicking neutral game area to dismiss popups")
   click_screen(rect.left + 500, rect.top + 800)
+  _park_cursor(rect)
   time.sleep(0.5)
 
 
@@ -55,6 +64,7 @@ class Portal:
 
   def __init__(self) -> None:
     self.rect: WindowRect = find_game_window(activate=True).refresh()
+    _park_cursor(self.rect)  # whatever the mouse was on, get it off the UI
     try:
       self.region: PanelRegion = find_portal_panel(capture_window(self.rect))
     except RuntimeError:
@@ -79,6 +89,7 @@ class Portal:
                          "was not found in the game window")
     print(f"    portal closed -> clicking blue-sphere button @ window({orb[0]}, {orb[1]})")
     click_screen(self.rect.left + orb[0], self.rect.top + orb[1])
+    _park_cursor(self.rect)
     time.sleep(DROPDOWN_DELAY)
     return find_portal_panel(capture_window(self.rect))
 
@@ -90,11 +101,13 @@ class Portal:
     return image, ocr_words_multi(image)
 
   def click(self, x: int, y: int, label: str) -> None:
-    """x, y are panel-relative."""
+    """x, y are panel-relative. The cursor is parked off the panel afterwards
+    so it can't occlude UI text in the next capture."""
     screen_x = self.rect.left + self.region.x0 + x
     screen_y = self.rect.top + self.region.y0 + y
     print(f"    click {label} @ panel({x}, {y}) -> screen({screen_x}, {screen_y})")
     click_screen(screen_x, screen_y)
+    _park_cursor(self.rect)
 
   def drag(self, x: int, y: int, dy: int, label: str) -> None:
     """Vertical drag from panel-relative (x, y)."""
@@ -102,6 +115,7 @@ class Portal:
     screen_y = self.rect.top + self.region.y0 + y
     print(f"    drag {label}: panel({x}, {y}) by {dy:+d}px")
     drag_screen(screen_x, screen_y, screen_x, screen_y + dy)
+    _park_cursor(self.rect)
 
 
 def _ensure_difficulty(portal: Portal, difficulty: str) -> None:
@@ -119,10 +133,14 @@ def _ensure_difficulty(portal: Portal, difficulty: str) -> None:
     current_label, button = found[0]      # topmost = the dropdown button itself
     options = found[1:]                   # anything below it = open option list
 
-    if not options:  # dropdown closed
-      if current_label == difficulty:
-        print(f"    difficulty is {difficulty}")
-        return
+    # Button already shows the target and every other hit is the same label:
+    # those are OCR phantoms (hover styling, double-threshold dupes), not an
+    # open option list — a genuinely open list shows the OTHER difficulties.
+    if current_label == difficulty and all(label == difficulty for label, _ in options):
+      print(f"    difficulty is {difficulty}")
+      return
+
+    if not options:  # dropdown closed, showing the wrong difficulty
       portal.click(button.cx, button.cy, f"difficulty dropdown (showing {current_label})")
       time.sleep(DROPDOWN_DELAY)
       continue
@@ -225,6 +243,7 @@ def dismiss_error_dialog() -> bool:
 
   print(f"  Error dialog detected -> clicking Confirm @ ({confirm.cx}, {confirm.cy})")
   click_screen(rect.left + confirm.cx, rect.top + confirm.cy)
+  _park_cursor(rect)
   time.sleep(STEP_DELAY)
   return True
 
@@ -247,6 +266,7 @@ def collect_blue_chests(max_rounds: int = 3) -> int:
     for _tap in range(3):
       click_screen(rect.left + chest.cx, rect.top + chest.cy)
       time.sleep(0.15)
+    _park_cursor(rect)
     collected += 1
     time.sleep(STEP_DELAY)
   return collected
@@ -271,6 +291,7 @@ def stash_all(pages: int | None = None) -> None:
     screen_x, screen_y = rect.left + region.x0 + x, rect.top + region.y0 + y
     print(f"    click {label} @ stash({x}, {y}) -> screen({screen_x}, {screen_y})")
     click_screen(screen_x, screen_y)
+    _park_cursor(rect)
 
   # The save (written ~1/min) lets us warn when the stash is genuinely full —
   # a full page silently drops loot. Every page still gets a Stash All click,
