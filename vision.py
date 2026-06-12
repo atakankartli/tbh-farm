@@ -174,6 +174,41 @@ def find_stash_panel(image_bgr: np.ndarray) -> PanelRegion:
   )
 
 
+def find_portal_orb(image_bgr: np.ndarray) -> tuple[int, int] | None:
+  """The portal-open button on the always-visible toolbar: a blue crystal
+  sphere set in an orange octagonal bezel. Distinguished from blue item
+  sprites by circularity and from the in-world portal (gray rocks around it)
+  by the bezel: the ring around the blob must be mostly orange/bronze."""
+  img_h, img_w = image_bgr.shape[:2]
+  hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+  blue = cv2.inRange(hsv, (95, 120, 120), (130, 255, 255))
+  orange = cv2.inRange(hsv, (8, 110, 90), (28, 255, 255))
+  blue = cv2.morphologyEx(blue, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+  contours, _ = cv2.findContours(blue, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+  best: tuple[float, int, int] | None = None
+  for contour in contours:
+    area = cv2.contourArea(contour)
+    if area < 150:
+      continue
+    x, y, w, h = cv2.boundingRect(contour)
+    circularity = 4 * np.pi * area / max(cv2.arcLength(contour, True), 1) ** 2
+    if circularity < 0.35 or not 0.5 <= w / max(h, 1) <= 1.6 or area / (w * h) < 0.4:
+      continue
+    cx, cy, r = x + w // 2, y + h // 2, max(w, h)
+    x0, y0 = max(cx - r, 0), max(cy - r, 0)
+    x1, y1 = min(cx + r, img_w), min(cy + r, img_h)
+    ring = orange[y0:y1, x0:x1] > 0
+    blob = blue[y0:y1, x0:x1] > 0
+    bezel = (ring & ~blob).sum() / max((~blob).sum(), 1)
+    if bezel < 0.25:
+      continue
+    score = bezel * area
+    if best is None or score > best[0]:
+      best = (score, cx, cy)
+  return (best[1], best[2]) if best else None
+
+
 # -------------------------------------------------------------- stash panel
 
 STASH_TAB_SPACING = 64  # page tabs are evenly spaced; OCR'd digits anchor the row
@@ -233,7 +268,9 @@ def find_stash_all_button(words: list[Word]) -> tuple[int, int]:
 
 # ---------------------------------------------------------------- difficulty
 
-_DIFFICULTY_PREFIXES = (("NIGHT", "NIGHTMARE"), ("HEL", "HELL"), ("NOR", "NORMAL"))
+_DIFFICULTY_PREFIXES = (
+  ("NIGHT", "NIGHTMARE"), ("TOR", "TORMENT"), ("HEL", "HELL"), ("NOR", "NORMAL"),
+)
 
 
 def _match_difficulty(text: str) -> str | None:

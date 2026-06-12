@@ -20,7 +20,7 @@ import config
 
 STATUS_PATH = Path(__file__).with_name("macro_status.json")
 SETTINGS_PATH = Path(__file__).with_name("macro_settings.json")   # GUI-toggled behavior
-_DEFAULT_SETTINGS = {"stashEnabled": True}
+_DEFAULT_SETTINGS = {"stashEnabled": True, "macroEnabled": True}
 
 
 def get_settings() -> dict:
@@ -136,8 +136,10 @@ INDEX_HTML = """<!doctype html>
   .pill{display:flex; align-items:center; gap:7px; font-size:12px;
     background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:6px 13px; color:var(--muted)}
   #savepill .rfx{color:var(--gold); font-size:13px}
-  #stashpill.clickable{cursor:pointer; user-select:none}
-  #stashpill.clickable:hover{border-color:var(--line2)}
+  #stashpill.clickable,#macropill.clickable{cursor:pointer; user-select:none}
+  #stashpill.clickable:hover,#macropill.clickable:hover{border-color:var(--line2)}
+  #macropill.paused{border-color:#6a2020; color:var(--red)}
+  .dot.red{background:var(--red); box-shadow:0 0 8px var(--red)}
   #savepill.stale{border-color:#6a4a20; color:var(--gold2)}
   #savepill.stale .rfx{color:var(--gold2)}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--green); box-shadow:0 0 8px var(--green)}
@@ -179,6 +181,7 @@ INDEX_HTML = """<!doctype html>
   .Hell{background:#3a1414; color:var(--red); border:1px solid #5a1c1c}
   .Nightmare{background:#241a3a; color:var(--purple); border:1px solid #3a2a55}
   .Normal{background:#16280f; color:var(--green); border:1px solid #28401f}
+  .Torment{background:#102b33; color:#6ad0ff; border:1px solid #1c4a5a}
   .gauge{display:flex; align-items:center; gap:16px}
   .ring{--p:0; --c:var(--gold); width:84px;height:84px;border-radius:50%; flex:none;
     background:conic-gradient(var(--c) calc(var(--p)*1%), #2a2117 0);
@@ -262,6 +265,8 @@ INDEX_HTML = """<!doctype html>
   <div class="logo">&#x1F4E6;</div>
   <div><h1>Blue-Chest Farm</h1><div class="hsub">STAGE-BOSS CHESTS &middot; <span id="cd">12</span>-MIN DUNGEON TIMER</div></div>
   <div class="pills">
+    <div class="pill" id="macropill" title="Master switch: when off, the macro never touches the mouse (click to toggle)">
+      <span class="dot" id="macrodot"></span><span id="macrolabel">macro</span></div>
     <div class="pill" id="stashpill" title="Stash loot after each cleared run (click to toggle)">
       <span class="dot" id="stashdot"></span><span id="stashlabel">stash</span></div>
     <div class="pill" id="savepill" title="When the game last wrote its save (it saves every ~1-2 min)">
@@ -293,7 +298,7 @@ INDEX_HTML = """<!doctype html>
     <tbody id="drops"></tbody></table></div>
 </div>
 <script>
-const MODE=["?","Normal","Nightmare","Hell"];
+const MODE=["?","Normal","Nightmare","Hell","Torment"];
 const CAN_EDIT=!window.RAW_STATE; // the published GitHub Pages mirror is read-only
 let state=null, ok=false;
 const $=id=>document.getElementById(id);
@@ -311,6 +316,12 @@ function render(){
   const m=state.macro||{}, busy=m.phase&&!/wait|idle|not running/i.test(m.phase);
   $("livedot").className="dot "+(!ok?"off":busy?"busy":"");
   $("livelabel").textContent=!ok?"offline":busy?"working":"online";
+
+  // master switch (main.py idles without touching the mouse when off)
+  const macroOn=!state.settings||state.settings.macroEnabled!==false;
+  $("macrolabel").textContent="macro "+(macroOn?"on":"paused");
+  $("macrodot").className="dot"+(macroOn?"":" red");
+  $("macropill").classList.toggle("paused",!macroOn);
 
   // stash toggle (main.py skips 'Stash All' after runs when off)
   const stashOn=!state.settings||state.settings.stashEnabled!==false;
@@ -365,7 +376,7 @@ function render(){
     const ready=left<=0;
     const pct=c.readyAt?Math.min(100,100*(1-left*1000/cdMs)):100;
     return `<div class="card ${ready?"rdy":""}">
-      ${c.custom&&CAN_EDIT?`<button class="rm" title="Stop farming ${c.key}" onclick="removeTarget('${c.key}')">&times;</button>`:""}
+      ${CAN_EDIT?`<button class="rm" title="Stop farming ${c.key}" onclick="removeTarget('${c.key}')">&times;</button>`:""}
       <div class="top"><span class="stage">${c.stage}</span><span class="chip ${c.mode}">${c.mode}</span><span class="lv">Lv${c.level}</span></div>
       <div class="gauge">
         <div class="ring ${ready?"rdy":""}" style="--p:${pct}"><div class="lab">
@@ -422,17 +433,18 @@ async function removeTarget(key){
   }catch(e){alert("request failed")}
   poll();
 }
-async function toggleStash(){
-  const on=!state||!state.settings||state.settings.stashEnabled!==false;
+async function toggleSetting(key){
+  const on=!state||!state.settings||state.settings[key]!==false;
   try{
     await fetch("/settings",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({stashEnabled:!on})});
+      body:JSON.stringify({[key]:!on})});
   }catch(e){}
   poll();
 }
 if(CAN_EDIT){
   $("addbtn").onclick=openAddForm;$("f_go").onclick=addTarget;
-  $("stashpill").classList.add("clickable");$("stashpill").onclick=toggleStash;
+  $("stashpill").classList.add("clickable");$("stashpill").onclick=()=>toggleSetting("stashEnabled");
+  $("macropill").classList.add("clickable");$("macropill").onclick=()=>toggleSetting("macroEnabled");
 }else{$("addbtn").style.display="none"}
 const STATE_URL=window.STATE_URL||"/state";
 async function poll(){
@@ -483,7 +495,7 @@ class _Handler(BaseHTTPRequestHandler):
       elif chests.remove_target(spec):
         self._send_json({"ok": True})
       else:
-        self._send_json({"ok": False, "error": f"{spec} comes from config.py — remove it there"}, 400)
+        self._send_json({"ok": False, "error": f"{spec} is not a farm target"}, 400)
     except ValueError as exc:
       self._send_json({"ok": False, "error": str(exc)}, 400)
 

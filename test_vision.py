@@ -52,6 +52,9 @@ def main() -> None:
     full = vision.capture_window(rect)
     print(f"Captured game window {rect.width}x{rect.height} @ ({rect.left}, {rect.top})")
 
+  orb = vision.find_portal_orb(full)
+  print(f"Portal button (blue sphere): {'at (%d,%d)' % orb if orb else 'not found'}")
+
   try:
     region = vision.find_portal_panel(full)
     print(f"PORTAL panel at ({region.x0},{region.y0})-({region.x1},{region.y1})")

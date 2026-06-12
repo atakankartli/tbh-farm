@@ -69,6 +69,13 @@ def main() -> None:
   print(f"Self-tracking cooldowns (no tbh-meter). Checking every {config.POLL_INTERVAL}s... (Ctrl+C)")
 
   while True:
+    if not get_settings().get("macroEnabled", True):
+      # Master switch off: no navigation, no error-dialog clicks — the mouse
+      # is entirely the user's until they flip it back on in the GUI.
+      set_macro_status("paused", "macro switched off in web GUI")
+      time.sleep(config.POLL_INTERVAL)
+      continue
+
     maybe_dismiss_error()
     ready = chests.get_ready_stages()
 

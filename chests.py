@@ -66,7 +66,7 @@ def _load_stage_names() -> dict[str, str]:
 
 _STAGE_NAMES = _load_stage_names()
 
-_DIFFICULTY_NUM = {"NORMAL": 1, "NIGHTMARE": 2, "HELL": 3}
+_DIFFICULTY_NUM = {"NORMAL": 1, "NIGHTMARE": 2, "HELL": 3, "TORMENT": 4}
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,8 @@ class Target:
 
   @property
   def mode(self) -> str:
-    return config.DIFFICULTY_LABELS[self.difficulty]
+    # .get so a config.py predating a difficulty (e.g. TORMENT) still works
+    return config.DIFFICULTY_LABELS.get(self.difficulty, self.difficulty.capitalize())
 
 
 def _parse_spec(spec: str, level: int = 0, custom: bool = False) -> Target:
@@ -103,29 +104,47 @@ def _parse_spec(spec: str, level: int = 0, custom: bool = False) -> Target:
   return Target(act=act_n, stage=stage_n, difficulty=difficulty, level=int(level), custom=custom)
 
 
-def _load_extra_targets() -> list[dict]:
+def _load_targets_file() -> dict:
+  """{'extras': [{spec, level}, ...], 'disabled': ['2-5:HELL', ...]}.
+  A bare list (the v1.1.0 format) is read as extras with nothing disabled."""
   try:
     with open(EXTRA_TARGETS_PATH, encoding="utf-8") as fh:
       raw = json.load(fh)
-    return [e for e in raw if isinstance(e, dict) and "spec" in e]
   except (OSError, ValueError):
-    return []
+    return {"extras": [], "disabled": []}
+  if isinstance(raw, list):
+    return {"extras": [e for e in raw if isinstance(e, dict) and "spec" in e], "disabled": []}
+  return {
+    "extras": [e for e in raw.get("extras", []) if isinstance(e, dict) and "spec" in e],
+    "disabled": [s for s in raw.get("disabled", []) if isinstance(s, str)],
+  }
+
+
+def _save_targets_file(data: dict) -> None:
+  _atomic_write(EXTRA_TARGETS_PATH, json.dumps(data))
+
+
+def _config_entries() -> list[tuple[str, int]]:
+  entries = []
+  for entry in getattr(config, "TARGET_STAGES", ()):
+    spec, level = (entry, 0) if isinstance(entry, str) else entry
+    entries.append((spec, level))
+  return entries
 
 
 def get_targets() -> list[Target]:
-  """config.TARGET_STAGES plus GUI-added stages, deduped (config wins)."""
-  entries: list[tuple[str, int, bool]] = []
-  for entry in getattr(config, "TARGET_STAGES", ()):
-    spec, level = (entry, 0) if isinstance(entry, str) else entry
-    entries.append((spec, level, False))
-  for extra in _load_extra_targets():
-    entries.append((extra["spec"], extra.get("level", 0), True))
+  """config.TARGET_STAGES plus GUI-added stages, minus GUI-disabled ones,
+  deduped (config wins)."""
+  data = _load_targets_file()
+  entries = [(spec, level, False) for spec, level in _config_entries()]
+  entries += [(e["spec"], e.get("level", 0), True) for e in data["extras"]]
 
+  disabled = set(data["disabled"])
   targets: list[Target] = []
   seen: set[str] = set()
   for spec, level, custom in entries:
     target = _parse_spec(spec, level, custom)
-    if target.key not in seen:
+    if target.key not in seen and target.key not in disabled:
       seen.add(target.key)
       targets.append(target)
   return targets
@@ -149,31 +168,43 @@ def all_stages() -> list[dict]:
 
 def add_target(spec: str, level: int | None = None) -> Target:
   """Add a farm target at runtime (web GUI). Persisted in macro_targets.json,
-  picked up by the loop on its next poll. Level defaults to the stage's level."""
+  picked up by the loop on its next poll. Level defaults to the stage's level.
+  Re-adding a GUI-removed config stage just re-enables it."""
   target = _parse_spec(spec, level or 0, custom=True)
   info = _STAGE_TABLE.get(str(target.stage_key))
   if info is None:
     raise ValueError(f"stage {target.key} does not exist")
   if level is None:
     target = _parse_spec(spec, int(info.get("lvl", 0)), custom=True)
+  data = _load_targets_file()
+  if target.key in data["disabled"]:
+    data["disabled"].remove(target.key)
+    _save_targets_file(data)
+    return target
   if any(t.key == target.key for t in get_targets()):
     raise ValueError(f"{target.key} is already a farm target")
-  extras = _load_extra_targets()
-  extras.append({"spec": target.key, "level": target.level})
-  _atomic_write(EXTRA_TARGETS_PATH, json.dumps(extras))
+  data["extras"].append({"spec": target.key, "level": target.level})
+  _save_targets_file(data)
   return target
 
 
 def remove_target(spec: str) -> bool:
-  """Remove a GUI-added target. Returns False if the spec isn't one (e.g. it
-  comes from config.TARGET_STAGES, which only config.py edits can change)."""
+  """Remove any farm target: GUI-added ones are deleted from the extras list;
+  config-defined ones go on a disabled list (config.py itself stays untouched).
+  Returns False if the spec isn't currently a target."""
   key = _parse_spec(spec).key
-  extras = _load_extra_targets()
-  kept = [e for e in extras if _parse_spec(e["spec"]).key != key]
-  if len(kept) == len(extras):
-    return False
-  _atomic_write(EXTRA_TARGETS_PATH, json.dumps(kept))
-  return True
+  data = _load_targets_file()
+  kept = [e for e in data["extras"] if _parse_spec(e["spec"]).key != key]
+  if len(kept) != len(data["extras"]):
+    data["extras"] = kept
+    _save_targets_file(data)
+    return True
+  config_keys = {_parse_spec(s, lv).key for s, lv in _config_entries()}
+  if key in config_keys and key not in data["disabled"]:
+    data["disabled"].append(key)
+    _save_targets_file(data)
+    return True
+  return False
 
 
 def _meter_settings_path() -> str:
@@ -220,7 +251,8 @@ def record_local_drop(target: ReadyStage | Target, drop_at_ms: int) -> None:
   log.insert(0, {
     "stageKey": num_key,
     "stage": f"{target.act}-{target.stage}",
-    "mode": config.DIFFICULTY_LABELS[target.difficulty.upper()],
+    "mode": config.DIFFICULTY_LABELS.get(
+      target.difficulty.upper(), target.difficulty.capitalize()),
     "dropAt": drop_at_ms,
     "dropAtStr": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(drop_at_ms / 1000)),
   })

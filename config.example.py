@@ -99,10 +99,11 @@ STASH_PAGES = 5
 ERROR_CHECK_SEC = 30
 
 # All difficulties the tracker can show (longer names first for OCR matching)
-DIFFICULTIES = ("NIGHTMARE", "HELL", "NORMAL")
+DIFFICULTIES = ("NIGHTMARE", "TORMENT", "NORMAL", "HELL")
 
 # Tracker label -> portal dropdown option label
 DIFFICULTY_LABELS = {
+    "TORMENT": "Torment",
     "HELL": "Hell",
     "NIGHTMARE": "Nightmare",
     "NORMAL": "Normal",

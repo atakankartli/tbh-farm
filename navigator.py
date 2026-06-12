@@ -17,6 +17,7 @@ from vision import (
   find_act_tabs,
   find_difficulty_words,
   find_dungeon_nodes,
+  find_portal_orb,
   find_portal_panel,
   find_stash_all_button,
   find_stash_panel,
@@ -53,11 +54,26 @@ class Portal:
       # A topmost shell popup (e.g. tray flyout) can cover the panel; a click
       # on empty game background dismisses it.
       _click_neutral(self.rect)
-      self.region = find_portal_panel(capture_window(self.rect))
+      try:
+        self.region = find_portal_panel(capture_window(self.rect))
+      except RuntimeError:
+        # Panel genuinely closed — open it via the blue-sphere toolbar button.
+        self.region = self._open_portal()
     print(
       f"  Game window {self.rect.width}x{self.rect.height} @ ({self.rect.left}, {self.rect.top}); "
       f"portal panel at ({self.region.x0}, {self.region.y0})-({self.region.x1}, {self.region.y1})"
     )
+
+  def _open_portal(self) -> PanelRegion:
+    """Click the blue-sphere toolbar button that opens the PORTAL panel."""
+    orb = find_portal_orb(capture_window(self.rect))
+    if orb is None:
+      raise RuntimeError("PORTAL panel not open and the blue-sphere portal button "
+                         "was not found in the game window")
+    print(f"    portal closed -> clicking blue-sphere button @ window({orb[0]}, {orb[1]})")
+    click_screen(self.rect.left + orb[0], self.rect.top + orb[1])
+    time.sleep(DROPDOWN_DELAY)
+    return find_portal_panel(capture_window(self.rect))
 
   def capture(self) -> np.ndarray:
     return self.region.crop(capture_window(self.rect))
