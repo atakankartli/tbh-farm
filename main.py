@@ -99,10 +99,24 @@ def main() -> None:
     target = ready[0]
     handle_key = stage_key(target)
 
-    print(f"READY: {handle_key} (Lv {target.level}) -> navigating...")
-    set_macro_status("navigating", "", handle_key)
+    # If the game is already parked on this stage, clicking its node would
+    # RESTART the run and lose the progress — skip navigation and just wait.
+    already_on = False
     try:
-      go_to_stage(target)
+      import savefile
+      already_on = savefile.load().current_stage_key == chests.numeric_stage_key(target)
+    except Exception:
+      pass
+
+    if already_on:
+      print(f"READY: {handle_key} (Lv {target.level}) -> already farming it; "
+            "skipping navigation so the current run isn't reset")
+    else:
+      print(f"READY: {handle_key} (Lv {target.level}) -> navigating...")
+      set_macro_status("navigating", "", handle_key)
+    try:
+      if not already_on:
+        go_to_stage(target)
     except StageLockedError as exc:
       # Retrying every poll would click forever at a chained map; drop the
       # target and keep farming the rest. Re-add it from the GUI once the
@@ -119,8 +133,10 @@ def main() -> None:
       continue
 
     # We only navigate to READY stages, so the first clear here drops the chest.
-    set_macro_status("running stage", "waiting for clear", handle_key)
-    cleared = runwatch.wait_for_clear(target)
+    set_macro_status("running stage",
+                     "already on stage; waiting for clear" if already_on else "waiting for clear",
+                     handle_key)
+    cleared = runwatch.wait_for_clear(target, learn=not already_on)
 
     if not cleared:
       print("  No clear confirmed within timeout — leaving cooldown unset, will retry")

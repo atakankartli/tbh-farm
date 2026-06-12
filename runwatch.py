@@ -42,10 +42,12 @@ def _load_learned() -> dict[str, int]:
 
 def _record_clear_time(key: str, est_sec: float) -> None:
   """Fold a fresh per-run measurement into the learned table (EMA, so one
-  outlier run can't swing the wait gate much)."""
+  outlier run can't swing the wait gate much). Stored values are clamped to
+  [30, 600]s — beyond that the timed gate would exceed RUN_TIMEOUT anyway,
+  and huge estimates are measurement artifacts (e.g. the PC slept mid-wait)."""
   data = _load_learned()
   old = data.get(key)
-  new = max(30, int(round(est_sec if old is None else 0.7 * old + 0.3 * est_sec)))
+  new = max(30, min(600, int(round(est_sec if old is None else 0.7 * old + 0.3 * est_sec))))
   data[key] = new
   tmp = LEARNED_CLEAR_PATH.with_suffix(".json.tmp")
   tmp.write_text(json.dumps(data), encoding="utf-8")
@@ -68,9 +70,12 @@ def clear_time(target: ReadyStage) -> float:
   return table.get(key, getattr(config, "CLEAR_TIME_DEFAULT", 300))
 
 
-def wait_for_clear(target: ReadyStage, timeout: float | None = None) -> bool:
+def wait_for_clear(target: ReadyStage, timeout: float | None = None, *, learn: bool = True) -> bool:
   """Block until a full run has completed on `target` (so the boss was killed
-  and the chest dropped), or timeout. Returns True on a confirmed clear."""
+  and the chest dropped), or timeout. Returns True on a confirmed clear.
+
+  learn=False skips clear-time learning — used when we joined a run already in
+  progress (no navigation), where the measured time would be a partial run."""
   timeout = timeout if timeout is not None else getattr(config, "RUN_TIMEOUT_SEC", 900)
   poll = getattr(config, "SAVE_POLL_SEC", 15)
   margin = getattr(config, "CLEAR_TIME_MARGIN", 1.3)
@@ -108,7 +113,8 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None) -> bool:
         # The whole flush window is after navigation, so the clear is ours.
         # Best estimate of the kill moment: middle of the window.
         est = (prev_saved + s.saved_at) / 2 - start
-        if runs == 1 and est > 0:
+        # est > timeout means the measurement is bogus (PC slept mid-wait)
+        if learn and runs == 1 and 0 < est <= timeout:
           _record_clear_time(key, est)
         print(f"  Clear confirmed by run counter: +{runs} run(s), {int(elapsed)}s elapsed")
         return True

@@ -267,10 +267,15 @@ def _load_local_drops() -> dict[int, int]:
     return {}
 
 
+def numeric_stage_key(target: ReadyStage | Target) -> int:
+  """The game's numeric key: difficulty*1000 + act*100 + stage."""
+  return _DIFFICULTY_NUM[target.difficulty.upper()] * 1000 + target.act * 100 + target.stage
+
+
 def record_local_drop(target: ReadyStage | Target, drop_at_ms: int) -> None:
   """Stamp a blue drop we caused: update latest-per-stage (for cooldowns) and
   append to the history log (for the GUI / our own record)."""
-  num_key = _DIFFICULTY_NUM[target.difficulty.upper()] * 1000 + target.act * 100 + target.stage
+  num_key = numeric_stage_key(target)
   drop_at_ms = int(drop_at_ms)
   drops = _load_local_drops()
   drops[num_key] = max(drops.get(num_key, 0), drop_at_ms)
