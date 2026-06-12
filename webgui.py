@@ -273,7 +273,7 @@ function render(){
     ? `STAGE <b>${lv.act}-${lv.stageNo}</b> ${MODE[lv.difficulty??0]||""}` : "";
 
   // stat tiles
-  const sv=state.save, readyN=state.chests.filter(c=>c.readyAt&&Date.now()>=c.readyAt).length;
+  const sv=state.save, readyN=state.chests.filter(c=>!c.readyAt||Date.now()>=c.readyAt).length;
   const tiles=[["Ready Now",readyN+" / "+state.chests.length,readyN>0]];
   if(sv){
     const full=sv.stash.free===0;
