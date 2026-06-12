@@ -127,7 +127,7 @@
     th,td{padding:9px 12px}td.stg,th{font-size:12px}
   }
   @media (max-width:380px){ .tiles{grid-template-columns:1fr 1fr;gap:8px} .tile .v{font-size:16px} }
-</style><script>window.SPRITE_BASE="sprites/";</script></head><body>
+</style><script>window.SPRITE_BASE="sprites/";window.RAW_STATE="https://raw.githubusercontent.com/atakankartli/tbh-farm/data/state.json";</script></head><body>
 <header><div class="hbar">
   <div class="logo">&#x1F4E6;</div>
   <div><h1>Blue-Chest Farm</h1><div class="hsub">STAGE-BOSS CHESTS &middot; <span id="cd">12</span>-MIN DUNGEON TIMER</div></div>
@@ -187,7 +187,7 @@ function render(){
     ? `STAGE <b>${lv.act}-${lv.stageNo}</b> ${MODE[lv.difficulty??0]||""}` : "";
 
   // stat tiles
-  const sv=state.save, readyN=state.chests.filter(c=>c.readyAt&&Date.now()>=c.readyAt).length;
+  const sv=state.save, readyN=state.chests.filter(c=>!c.readyAt||Date.now()>=c.readyAt).length;
   const tiles=[["Ready Now",readyN+" / "+state.chests.length,readyN>0]];
   if(sv){
     const full=sv.stash.free===0;
@@ -276,9 +276,10 @@ async function decryptEnvelope(env,pw){
   const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(env.iv)},key,b64d(env.ct));
   return JSON.parse(new TextDecoder().decode(pt));
 }
+const STATE_SRC=window.RAW_STATE||'state.json';
 window.STATE_FETCH=async function(){
   const pw=sessionStorage.getItem('tbhpw'); if(!pw) throw new Error('locked');
-  const env=await (await fetch('state.json?t='+Date.now(),{cache:'no-store'})).json();
+  const env=await (await fetch(STATE_SRC+'?t='+Date.now(),{cache:'no-store'})).json();
   const st=await decryptEnvelope(env,pw);           // throws on wrong password
   document.getElementById('gate').style.display='none';
   return st;
@@ -291,7 +292,7 @@ async function unlock(){
   const pw=document.getElementById('pw').value, err=document.getElementById('gerr');
   err.textContent='checking...';
   try{
-    const env=await (await fetch('state.json?t='+Date.now(),{cache:'no-store'})).json();
+    const env=await (await fetch(STATE_SRC+'?t='+Date.now(),{cache:'no-store'})).json();
     await decryptEnvelope(env,pw);                  // validate before storing
     sessionStorage.setItem('tbhpw',pw); err.textContent=''; poll();
   }catch(e){ err.textContent='Wrong password'; }
