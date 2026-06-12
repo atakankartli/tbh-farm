@@ -157,6 +157,15 @@ def get_targets() -> list[Target]:
   return targets
 
 
+def validate_stage(spec: str) -> Target:
+  """Parse a spec and confirm the stage exists in the game table (it does not
+  need to be a farm target — used for manual navigation)."""
+  target = _parse_spec(spec)
+  if str(target.stage_key) not in _STAGE_TABLE:
+    raise ValueError(f"stage {target.key} does not exist")
+  return target
+
+
 def set_target_level(spec: str, level: int) -> Target:
   """GUI: change a target's chest level at runtime. The level is what drop
   verification matches against (item key 920<level>1), so a wrong level makes

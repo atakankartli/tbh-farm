@@ -25,6 +25,27 @@ SETTINGS_PATH = Path(__file__).with_name("macro_settings.json")   # GUI-toggled 
 _DEFAULT_SETTINGS = {"stashEnabled": False, "macroEnabled": False}
 
 
+COMMAND_PATH = Path(__file__).with_name("macro_command.json")
+
+
+def push_command(cmd: dict) -> None:
+  """One-shot command from the GUI to the farm loop (e.g. manual navigation)."""
+  COMMAND_PATH.write_text(json.dumps({**cmd, "at": int(time.time() * 1000)}), encoding="utf-8")
+
+
+def pop_command() -> dict | None:
+  try:
+    cmd = json.loads(COMMAND_PATH.read_text(encoding="utf-8"))
+    COMMAND_PATH.unlink()
+    return cmd
+  except (OSError, ValueError):
+    return None
+
+
+def command_pending() -> bool:
+  return COMMAND_PATH.exists()
+
+
 def get_settings() -> dict:
   """Runtime toggles set from the GUI; main.py reads these every loop."""
   try:
@@ -216,6 +237,10 @@ INDEX_HTML = """<!doctype html>
     background:transparent; color:var(--dim); border:1px solid transparent; font-size:14px; line-height:1;
     cursor:pointer; display:grid; place-items:center}
   .card .rm:hover{color:var(--red); border-color:#5a1c1c; background:#2a1414}
+  .card .go2{position:absolute; top:10px; right:38px; z-index:1; width:22px; height:22px; border-radius:6px;
+    background:transparent; color:var(--dim); border:1px solid transparent; font-size:10px; line-height:1;
+    cursor:pointer; display:grid; place-items:center}
+  .card .go2:hover{color:var(--green); border-color:#28401f; background:#16280f}
   /* drops table */
   .tbl{background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden}
   table{width:100%; border-collapse:collapse; font-size:13px}
@@ -294,6 +319,7 @@ INDEX_HTML = """<!doctype html>
     <select id="f_stage"></select>
     <input id="f_level" type="number" min="0" placeholder="level">
     <button class="go" id="f_go" type="button">Add</button>
+    <button class="go" id="f_goto" type="button" title="Navigate the game there now (doesn't add to farm targets)">Go now</button>
     <span class="err" id="f_err"></span>
   </div>
   <div class="cards" id="cards"></div>
@@ -380,7 +406,8 @@ function render(){
     const ready=left<=0;
     const pct=c.readyAt?Math.min(100,100*(1-left*1000/cdMs)):100;
     return `<div class="card ${ready?"rdy":""}">
-      ${CAN_EDIT?`<button class="rm" title="Stop farming ${c.key}" onclick="removeTarget('${c.key}')">&times;</button>`:""}
+      ${CAN_EDIT?`<button class="rm" title="Stop farming ${c.key}" onclick="removeTarget('${c.key}')">&times;</button>
+      <button class="go2" title="Navigate the game to ${c.key} now (works while paused)" onclick="gotoStage('${c.key}')">&#9654;</button>`:""}
       <div class="top"><span class="stage">${c.stage}</span><span class="chip ${c.mode}">${c.mode}</span><span class="lv${CAN_EDIT?" edit":""}" ${CAN_EDIT?`onclick="editLevel('${c.key}',${c.level})" title="chest level — drops are matched by it (click to change)"`:""}>Lv${c.level}</span></div>
       <div class="gauge">
         <div class="ring ${ready?"rdy":""}" style="--p:${pct}"><div class="lab">
@@ -440,6 +467,15 @@ async function editLevel(key,current){
   }catch(e){alert("request failed")}
   poll();
 }
+async function gotoStage(key){
+  try{
+    const r=await fetch("/goto",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({spec:key})});
+    const j=await r.json();
+    if(!j.ok){alert(j.error||"failed");return}
+  }catch(e){alert("request failed");return}
+  poll();
+}
 async function removeTarget(key){
   if(!confirm("Stop farming "+key+"? Its drop history is kept."))return;
   try{
@@ -460,6 +496,7 @@ async function toggleSetting(key){
 }
 if(CAN_EDIT){
   $("addbtn").onclick=openAddForm;$("f_go").onclick=addTarget;
+  $("f_goto").onclick=()=>{$("f_err").textContent="";gotoStage($("f_stage").value)};
   $("stashpill").classList.add("clickable");$("stashpill").onclick=()=>toggleSetting("stashEnabled");
   $("macropill").classList.add("clickable");$("macropill").onclick=()=>toggleSetting("macroEnabled");
 }else{$("addbtn").style.display="none"}
@@ -489,7 +526,8 @@ class _Handler(BaseHTTPRequestHandler):
     self.wfile.write(body)
 
   def do_POST(self):  # noqa: N802 — GUI actions: farm targets, behavior toggles
-    if self.path not in ("/targets/add", "/targets/remove", "/targets/level", "/settings"):
+    if self.path not in ("/targets/add", "/targets/remove", "/targets/level",
+                         "/settings", "/goto"):
       self.send_error(404)
       return
     try:
@@ -512,6 +550,10 @@ class _Handler(BaseHTTPRequestHandler):
       elif self.path == "/targets/level":
         target = chests.set_target_level(spec, int(payload.get("level", -1)))
         self._send_json({"ok": True, "key": target.key, "level": target.level})
+      elif self.path == "/goto":
+        target = chests.validate_stage(spec)
+        push_command({"goto": target.key})
+        self._send_json({"ok": True, "key": target.key})
       elif chests.remove_target(spec):
         self._send_json({"ok": True})
       else:

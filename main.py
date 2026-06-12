@@ -29,7 +29,7 @@ from navigator import (
   stash_all,
 )
 from tracker import ReadyStage
-from webgui import get_settings, set_macro_status, start_in_background
+from webgui import command_pending, get_settings, pop_command, set_macro_status, start_in_background
 
 _last_error_check = 0.0
 
@@ -84,6 +84,22 @@ def main() -> None:
           "'macro' pill on the dashboard to turn it on.")
 
   while True:
+    # Manual navigation from the GUI — an explicit user action, so it runs
+    # even while the macro is paused, and aborts any in-progress wait.
+    cmd = pop_command()
+    if cmd and cmd.get("goto"):
+      spec = cmd["goto"]
+      print(f"Manual navigation requested: {spec}")
+      set_macro_status("navigating (manual)", "", spec)
+      try:
+        go_to_stage(chests.validate_stage(spec))
+        set_macro_status("idle", f"manually moved to {spec} — the game farms it now")
+        print(f"  Now parked on {spec}")
+      except Exception as exc:
+        print(f"  Manual navigation failed: {exc}")
+        set_macro_status("manual navigation failed", str(exc), spec)
+      continue
+
     if not get_settings().get("macroEnabled", False):
       # Master switch off: no navigation, no error-dialog clicks — the mouse
       # is entirely the user's until they flip it back on in the GUI.
@@ -153,7 +169,11 @@ def main() -> None:
     set_macro_status("running stage",
                      "already on stage; waiting for clear" if already_on else "waiting for clear",
                      handle_key)
-    result = runwatch.wait_for_clear(target, learn=not already_on, watcher=watcher)
+    result = runwatch.wait_for_clear(target, learn=not already_on, watcher=watcher,
+                                     abort=command_pending)
+
+    if result == "aborted":
+      continue  # loop top executes the pending manual command
 
     if result is None:
       if watcher is not None:

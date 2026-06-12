@@ -9,6 +9,7 @@ macro_drops.json
 macro_targets.json
 macro_settings.json
 macro_clear_times.json
+macro_command.json
 # PyInstaller output (packaging/build.ps1)
 build/
 dist/

@@ -71,7 +71,7 @@ def clear_time(target: ReadyStage) -> float:
 
 
 def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
-                   learn: bool = True, watcher=None) -> str | None:
+                   learn: bool = True, watcher=None, abort=None) -> str | None:
   """Block until the game LOGS a blue-chest drop for this stage's level.
 
   Normal mode (watcher given): the drop line in Player.log is the ONLY thing
@@ -93,6 +93,9 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
     last_note = start
     while time.time() - start < timeout:
       time.sleep(log_poll)
+      if abort and abort():
+        print("  wait aborted — a manual command is pending")
+        return "aborted"
       for level in watcher.new_blue_drops():
         if not target.level or level == target.level:
           print(f"  Blue drop LOGGED by the game after {int(time.time() - start)}s")
@@ -127,6 +130,9 @@ def wait_for_clear(target: ReadyStage, timeout: float | None = None, *,
 
   while time.time() - start < timeout:
     time.sleep(poll)
+    if abort and abort():
+      print("  wait aborted — a manual command is pending")
+      return "aborted"
     elapsed = time.time() - start
     try:
       s = savefile.load()
