@@ -1,0 +1,38 @@
+{
+  "_comment": "4 clicks per route: open diff + pick diff + act (config) + dungeon node (here). Or 'clicks' with all 4.",
+  "2-5:HELL": {
+    "name": "Act 2-5 Hell",
+    "node": [
+      -683,
+      1657
+    ]
+  },
+  "3-5:NIGHTMARE": {
+    "name": "Act 3-5 Nightmare",
+    "node": [
+      -707,
+      1605
+    ]
+  },
+  "1-9:NIGHTMARE": {
+    "name": "Act 1-9 Nightmare",
+    "node": [
+      -779,
+      1453
+    ]
+  },
+  "3-8:NORMAL": {
+    "name": "Act 3-8 Normal",
+    "node": [
+      -673,
+      1493
+    ]
+  },
+  "2-3:NORMAL": {
+    "name": "Act 2-3 Normal",
+    "node": [
+      -674,
+      1728
+    ]
+  }
+}

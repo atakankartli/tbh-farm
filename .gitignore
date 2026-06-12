@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+_*.png
+config.py
+secret*.py
+macro_status.json
+macro_chests.json
+macro_drops.json
