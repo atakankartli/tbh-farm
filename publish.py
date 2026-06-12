@@ -33,13 +33,19 @@ import config
 import webgui
 
 PROJECT_DIR = Path(__file__).parent
-PUBLISH_DIR = Path(getattr(config, "PUBLISH_DIR", os.path.expanduser(r"~\tbh-farm-site")))
+PUBLISH_DIR = Path(getattr(config, "PUBLISH_DIR", os.path.expanduser(r"~\tbh-farm-site")))   # gh-pages: site shell
+DATA_DIR = PUBLISH_DIR.parent / (PUBLISH_DIR.name + "-data")                                  # data branch: state.json
 USER = getattr(config, "GITHUB_USER", "atakankartli")
 REPO = getattr(config, "GITHUB_REPO", "tbh-farm")
 PASSWORD = getattr(config, "SITE_PASSWORD", "changeme")
 PBKDF2_ITERS = 150_000
 COMMIT_MSG = "live state"
+DATA_BRANCH = "data"
 REMOTE = f"https://github.com/{USER}/{REPO}.git"
+# state.json lives on the `data` branch and is served by raw (CORS-enabled, no
+# Pages build). Pushing data NEVER triggers a Pages build, so the gh-pages
+# build pipeline stops failing from force-push thrashing.
+RAW_STATE_URL = f"https://raw.githubusercontent.com/{USER}/{REPO}/{DATA_BRANCH}/state.json"
 
 
 def _run(args, cwd=None, check=True, quiet=False):
@@ -108,9 +114,10 @@ async function decryptEnvelope(env,pw){
   const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(env.iv)},key,b64d(env.ct));
   return JSON.parse(new TextDecoder().decode(pt));
 }
+const STATE_SRC=window.RAW_STATE||'state.json';
 window.STATE_FETCH=async function(){
   const pw=sessionStorage.getItem('tbhpw'); if(!pw) throw new Error('locked');
-  const env=await (await fetch('state.json?t='+Date.now(),{cache:'no-store'})).json();
+  const env=await (await fetch(STATE_SRC+'?t='+Date.now(),{cache:'no-store'})).json();
   const st=await decryptEnvelope(env,pw);           // throws on wrong password
   document.getElementById('gate').style.display='none';
   return st;
@@ -123,7 +130,7 @@ async function unlock(){
   const pw=document.getElementById('pw').value, err=document.getElementById('gerr');
   err.textContent='checking...';
   try{
-    const env=await (await fetch('state.json?t='+Date.now(),{cache:'no-store'})).json();
+    const env=await (await fetch(STATE_SRC+'?t='+Date.now(),{cache:'no-store'})).json();
     await decryptEnvelope(env,pw);                  // validate before storing
     sessionStorage.setItem('tbhpw',pw); err.textContent=''; poll();
   }catch(e){ err.textContent='Wrong password'; }
@@ -140,12 +147,15 @@ def _static_html() -> str:
   # the gate drives poll() itself, so neutralise the built-in auto-start loop
   html = html.replace("setInterval(render,1000); setInterval(poll,3000); poll();",
                       "setInterval(render,1000); setInterval(()=>{if(sessionStorage.getItem('tbhpw'))poll();},3000);")
-  # sprites are published next to index.html (relative path, not the local /sprites/ route)
-  html = html.replace("</head>", '<script>window.SPRITE_BASE="sprites/";</script></head>', 1)
+  # sprites served from gh-pages (relative); state.json from raw (data branch)
+  inject = f'<script>window.SPRITE_BASE="sprites/";window.RAW_STATE="{RAW_STATE_URL}";</script>'
+  html = html.replace("</head>", inject + "</head>", 1)
   return html.replace("</body>", _GATE + "</body>", 1)
 
 
 def _write_site() -> None:
+  """gh-pages shell: index.html + sprites + .nojekyll. Built by Pages, changes
+  rarely (only on design updates), so its builds succeed."""
   import shutil
   PUBLISH_DIR.mkdir(parents=True, exist_ok=True)
   (PUBLISH_DIR / "index.html").write_text(_static_html(), encoding="utf-8")
@@ -153,13 +163,14 @@ def _write_site() -> None:
   src = PROJECT_DIR / "sprites"
   if src.is_dir():
     shutil.copytree(src, PUBLISH_DIR / "sprites", dirs_exist_ok=True)
-  _write_state()
 
 
 def _write_state() -> None:
+  """data branch: just the encrypted state.json, served by raw (no Pages build)."""
+  DATA_DIR.mkdir(parents=True, exist_ok=True)
   plaintext = json.dumps(webgui.build_state()).encode("utf-8")
   env = encrypt_state(plaintext, PASSWORD)
-  (PUBLISH_DIR / "state.json").write_text(json.dumps(env), encoding="utf-8")
+  (DATA_DIR / "state.json").write_text(json.dumps(env), encoding="utf-8")
 
 
 # -------------------------------------------------------------------- setup
@@ -201,20 +212,26 @@ def setup() -> None:
   print("Pushing code to main...")
   _run(["git", "push", "-u", "origin", "main", "--force"], cwd=PROJECT_DIR)
 
-  # 2) build the gh-pages site in its own working copy
-  print(f"Building site in {PUBLISH_DIR} ...")
+  # 2) gh-pages: the site shell (built by Pages, pushed rarely)
+  print(f"Building site shell in {PUBLISH_DIR} ...")
   PUBLISH_DIR.mkdir(parents=True, exist_ok=True)
   if not (PUBLISH_DIR / ".git").exists():
     _run(["git", "init", "-b", "gh-pages"], cwd=PUBLISH_DIR)
     _run(["git", "remote", "add", "origin", REMOTE], cwd=PUBLISH_DIR)
   _run(["git", "config", "user.name", USER], cwd=PUBLISH_DIR, check=False, quiet=True)
+  (PUBLISH_DIR / "state.json").unlink(missing_ok=True)  # state lives on the data branch now
   _write_site()
   _run(["git", "add", "-A"], cwd=PUBLISH_DIR)
-  _run(["git", "commit", "-m", COMMIT_MSG], cwd=PUBLISH_DIR, check=False)
-  print("Pushing site to gh-pages...")
+  _run(["git", "commit", "-m", "site shell"], cwd=PUBLISH_DIR, check=False)
+  print("Pushing site shell to gh-pages...")
   _run(["git", "push", "-u", "origin", "gh-pages", "--force"], cwd=PUBLISH_DIR)
 
-  # 3) enable Pages
+  # 3) data branch: the encrypted state.json (served by raw, no Pages build)
+  print(f"Seeding state on '{DATA_BRANCH}' branch in {DATA_DIR} ...")
+  _init_data_repo()
+  publish_once(initial=True)
+
+  # 4) enable Pages on gh-pages
   _enable_pages()
 
   url = f"https://{USER}.github.io/{REPO}/"
@@ -223,6 +240,14 @@ def setup() -> None:
   print(f"  PASSWORD: {PASSWORD}")
   print("  (first build ~1 min). Keep it live with:  python publish.py")
   print("=" * 60)
+
+
+def _init_data_repo() -> None:
+  DATA_DIR.mkdir(parents=True, exist_ok=True)
+  if not (DATA_DIR / ".git").exists():
+    _run(["git", "init", "-b", DATA_BRANCH], cwd=DATA_DIR)
+    _run(["git", "remote", "add", "origin", REMOTE], cwd=DATA_DIR)
+  _run(["git", "config", "user.name", USER], cwd=DATA_DIR, check=False, quiet=True)
 
 
 def _write_gitignore() -> None:
@@ -235,18 +260,22 @@ def _write_gitignore() -> None:
 
 
 def publish_once(initial: bool = False) -> None:
-  if not (PUBLISH_DIR / ".git").exists():
-    raise SystemExit("Site not set up. Run:  python publish.py --setup")
+  """Push the encrypted state.json to the `data` branch (NOT gh-pages), so it
+  never triggers a Pages build. raw.githubusercontent serves it to the page."""
+  if not (DATA_DIR / ".git").exists():
+    if not (PUBLISH_DIR / ".git").exists():
+      raise SystemExit("Site not set up. Run:  python publish.py --setup")
+    _init_data_repo()
   _write_state()
-  _run(["git", "add", "state.json"], cwd=PUBLISH_DIR, quiet=True)
-  head = _run(["git", "log", "-1", "--pretty=%s"], cwd=PUBLISH_DIR, check=False, quiet=True).stdout.strip()
+  _run(["git", "add", "state.json"], cwd=DATA_DIR, quiet=True)
+  head = _run(["git", "log", "-1", "--pretty=%s"], cwd=DATA_DIR, check=False, quiet=True).stdout.strip()
   if head == COMMIT_MSG and not initial:
-    _run(["git", "commit", "--amend", "-m", COMMIT_MSG, "--no-edit"], cwd=PUBLISH_DIR, check=False, quiet=True)
+    _run(["git", "commit", "--amend", "-m", COMMIT_MSG, "--no-edit"], cwd=DATA_DIR, check=False, quiet=True)
   else:
-    if not _run(["git", "status", "--porcelain"], cwd=PUBLISH_DIR, quiet=True).stdout.strip():
+    if not _run(["git", "status", "--porcelain"], cwd=DATA_DIR, quiet=True).stdout.strip():
       return
-    _run(["git", "commit", "-m", COMMIT_MSG], cwd=PUBLISH_DIR, check=False, quiet=True)
-  _run(["git", "push", "--force-with-lease", "origin", "gh-pages"], cwd=PUBLISH_DIR, check=False, quiet=True)
+    _run(["git", "commit", "-m", COMMIT_MSG], cwd=DATA_DIR, check=False, quiet=True)
+  _run(["git", "push", "--force-with-lease", "origin", DATA_BRANCH], cwd=DATA_DIR, check=False, quiet=True)
 
 
 def _timer_signature():
@@ -285,14 +314,16 @@ def start_in_background() -> None:
 
 
 def rebuild_site() -> None:
-  """Re-push the full site (index.html + sprites + state) after a design change."""
+  """Re-push the gh-pages shell (index.html + sprites) after a design change.
+  Triggers ONE Pages build. State.json is separate (data branch) and untouched."""
   if not (PUBLISH_DIR / ".git").exists():
     raise SystemExit("Site not set up. Run:  python publish.py --setup")
+  (PUBLISH_DIR / "state.json").unlink(missing_ok=True)
   _write_site()
   _run(["git", "add", "-A"], cwd=PUBLISH_DIR, quiet=True)
-  _run(["git", "commit", "-m", COMMIT_MSG], cwd=PUBLISH_DIR, check=False, quiet=True)
+  _run(["git", "commit", "-m", "site shell"], cwd=PUBLISH_DIR, check=False, quiet=True)
   _run(["git", "push", "--force-with-lease", "origin", "gh-pages"], cwd=PUBLISH_DIR, check=False)
-  print(f"Rebuilt + pushed site -> https://{USER}.github.io/{REPO}/")
+  print(f"Rebuilt + pushed site shell -> https://{USER}.github.io/{REPO}/")
 
 
 if __name__ == "__main__":
