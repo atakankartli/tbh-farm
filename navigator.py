@@ -30,8 +30,8 @@ from vision import (
 from win32_coords import click_screen, drag_screen, move_cursor
 from windows import WindowRect, find_game_window
 
-STEP_DELAY = getattr(config, "VISION_STEP_DELAY", 0.3)
-DROPDOWN_DELAY = getattr(config, "VISION_DROPDOWN_DELAY", 0.5)
+STEP_DELAY = getattr(config, "VISION_STEP_DELAY", 0.2)
+DROPDOWN_DELAY = getattr(config, "VISION_DROPDOWN_DELAY", 0.4)
 SCROLL_PX = 140  # map drag distance per scroll attempt
 
 
@@ -54,7 +54,7 @@ def _click_neutral(rect: WindowRect) -> None:
   print("    panel obscured? clicking neutral game area to dismiss popups")
   click_screen(rect.left + 500, rect.top + 800)
   _park_cursor(rect)
-  time.sleep(0.5)
+  time.sleep(0.3)
 
 
 class Portal:
@@ -127,7 +127,7 @@ def _ensure_difficulty(portal: Portal, difficulty: str) -> None:
     found = sorted(find_difficulty_words(words), key=lambda item: item[1].y)
     if not found:
       # mid-animation capture (dropdown closing/re-rendering) — re-observe
-      time.sleep(0.4)
+      time.sleep(0.25)
       continue
 
     current_label, button = found[0]      # topmost = the dropdown button itself
@@ -151,7 +151,7 @@ def _ensure_difficulty(portal: Portal, difficulty: str) -> None:
       time.sleep(STEP_DELAY)
       continue  # next pass verifies the closed dropdown shows the target
 
-    time.sleep(0.3)  # open but target not visible yet (render lag) — re-observe
+    time.sleep(0.2)  # open but target not visible yet (render lag) — re-observe
 
   raise RuntimeError(f"Could not set difficulty to {difficulty} after 5 attempts")
 

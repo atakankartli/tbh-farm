@@ -115,8 +115,8 @@ DIFFICULTY_LABELS = {
 
 # Vision-based navigation: the PORTAL window is captured and the dropdown,
 # act tabs, and dungeon nodes are located by OCR/shape detection each time.
-VISION_STEP_DELAY = 0.3       # wait after a click before recapturing
-VISION_DROPDOWN_DELAY = 0.5   # wait for the difficulty dropdown to open
+VISION_STEP_DELAY = 0.2       # wait after a click before recapturing
+VISION_DROPDOWN_DELAY = 0.4   # wait for the difficulty dropdown to open
 
 # LEGACY (manual coords, used only by calibrate_*/record_combo tools).
 PORTAL_UI = {

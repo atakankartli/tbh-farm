@@ -146,7 +146,7 @@ def main() -> None:
     except Exception as exc:
       print(f"Navigation failed: {exc}")
       set_macro_status("navigation failed", str(exc), handle_key)
-      time.sleep(config.POLL_INTERVAL)
+      time.sleep(2)  # brief pause so a persistent vision failure can't hot-loop
       continue
 
     # We only navigate to READY stages, so the first clear here drops the chest.
@@ -166,8 +166,7 @@ def main() -> None:
       else:
         print("  No clear confirmed within timeout — leaving cooldown unset, will retry")
         set_macro_status("run timeout", "", handle_key)
-      time.sleep(config.POLL_INTERVAL)
-      continue
+      continue  # backoff guards the failed stage; pick the next one now
 
     # "dropped" (game-verified), or "cleared" in legacy no-log mode.
     _no_drop_backoff.pop(handle_key, None)
@@ -192,7 +191,8 @@ def main() -> None:
       print("  Stash skipped (turned off in web GUI)")
 
     set_macro_status("idle", f"last: {handle_key} cleared")
-    time.sleep(config.POLL_INTERVAL)
+    # no sleep: the loop top re-checks cooldowns immediately and only waits
+    # (POLL_INTERVAL) when nothing is ready
 
 
 if __name__ == "__main__":
